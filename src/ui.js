@@ -436,7 +436,7 @@ export default function App({ sessions: initialSessions, onResume }) {
     else if (key.return || input === "r") {
       onResume(current);
       exit();
-    } else if (input === "d" && key.ctrl) setMode("deleting");
+    } else if (input === "D") setMode("deleting");
     else if (input === "s") {
       setSortMode((m) =>
         m === "recent" ? "lexic" : m === "directory" ? "recent" : "directory",
@@ -508,7 +508,7 @@ export default function App({ sessions: initialSessions, onResume }) {
     termWidth,
   );
   const navText = pad(
-    " ↑↓ navigate  / search  p preview  enter/r resume  ^d delete  s sort  q quit",
+    " ↑↓ navigate  / search  p preview  enter/r resume  D delete  s sort  q quit",
     termWidth,
   );
 

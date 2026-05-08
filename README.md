@@ -20,7 +20,7 @@ Or install globally and run as `clod`.
 | `enter` / `r` | Resume selected session |
 | `p` / `space` | Preview conversation |
 | `/` | Search by title |
-| `ctrl+d` | Delete (moves to Trash) |
+| `D` | Delete (moves to Trash) |
 | `s` | Cycle sort: by directory → recent → lexicographic |
 | `q` / `esc` | Quit |
 
