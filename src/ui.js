@@ -432,7 +432,7 @@ export default function App({ sessions: initialSessions, onResume }) {
     else if (key.downArrow) navigate(1);
     else if (input === "/") {
       setIsSearching(true);
-    } else if (input === "p") setMode("preview");
+    } else if (input === "p" || input === " ") setMode("preview");
     else if (key.return || input === "r") {
       onResume(current);
       exit();

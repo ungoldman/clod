@@ -5,8 +5,9 @@ import { homedir } from 'os'
 
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 
-// Claude Code injects system content as XML-tagged blocks; filter those out
-const INJECTED = /^<(?:context|system|command|tool_result|result|task|env)\b/i
+// Claude Code injects system content as XML-tagged blocks; any message starting
+// with an opening tag is injected content, not a real user message
+const INJECTED = /^<[a-z]/i
 
 function isRealUserMessage(record) {
   if (record.type !== 'user' || record.isMeta) return false

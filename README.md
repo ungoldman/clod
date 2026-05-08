@@ -1,8 +1,8 @@
 # clod
 
-Terminal UI for browsing and resuming Claude Code sessions across your home directory.
+Terminal UI for browsing, searching, previewing, deleting, and resuming all Claude Code sessions in your home directory.
 
-`claude -r` scopes to the current project. clod shows all sessions across all projects, organized and sortable by directory, with last-message snippets and delete support.
+Like `claude -r` but better.
 
 ## Usage
 
@@ -18,14 +18,15 @@ Or install globally and run as `clod`.
 |-----|--------|
 | `↑` / `↓` | Navigate list |
 | `enter` / `r` | Resume selected session |
-| `p` | Preview conversation |
+| `p` / `space` | Preview conversation |
+| `/` | Search by title |
 | `ctrl+d` | Delete (moves to Trash) |
 | `s` | Cycle sort: by directory → recent → lexicographic |
 | `q` / `esc` | Quit |
 
 ## What it shows
 
-Each row: session title · project path · time since last activity
+Each row: session title · branch · project path · time since last activity
 
 Bottom bar: last user message from the selected session.
 
