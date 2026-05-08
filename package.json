@@ -1,0 +1,21 @@
+{
+  "name": "clod",
+  "version": "0.1.0",
+  "description": "Interactive browser for Claude Code sessions",
+  "type": "module",
+  "bin": {
+    "clod": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "ink": "^5.0.1",
+    "react": "^18.3.1",
+    "trash": "^10.1.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
