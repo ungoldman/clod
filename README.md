@@ -4,13 +4,28 @@ Terminal UI for Claude sessions. Browse, search, preview, delete, and resume any
 
 Like `claude -r` but better.
 
-## Usage
+## Install
+
+Not published to npm yet. Install from a clone:
+
+```
+git clone <repo-url> clod
+cd clod
+pnpm install
+pnpm link --global
+```
+
+This puts `clod` on your PATH, so you can run it from anywhere:
+
+```
+clod
+```
+
+Or skip the link step and run it in place from the clone:
 
 ```
 node src/index.js
 ```
-
-Or install globally and run as `clod`.
 
 ## Keys
 
@@ -51,9 +66,3 @@ Bottom bar: last user message from the selected session.
 - Node 22+
 - pnpm
 - Claude Code CLI (`claude`) on PATH for resume
-
-## Install dependencies
-
-```
-pnpm install
-```
