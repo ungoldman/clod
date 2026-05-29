@@ -5,6 +5,7 @@ import {
   deleteSession,
   relativeTime,
   shortPath,
+  fmtTokens,
 } from "./sessions.js";
 
 const h = React.createElement;
@@ -25,32 +26,53 @@ function pad(str, len) {
     : str + " ".repeat(len - str.length);
 }
 
+function padLeft(str, len) {
+  return str.length >= len ? str.slice(0, len) : " ".repeat(len - str.length) + str;
+}
+
+// subsequence fuzzy match: query chars must appear in order, case-insensitive
+function fuzzyMatch(query, target) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  let qi = 0;
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+    if (t[ti] === q[qi]) qi++;
+  }
+  return qi === q.length;
+}
+
 // ─── Row ─────────────────────────────────────────────────────────────────────
 
 const TITLE_MIN = 10;
 const BRANCH_MIN = 8;
 const DIR_MIN = 10;
 
+const usedStr = (s) => (s.tokens ? `${fmtTokens(s.tokens)} used` : "—");
+const ctxStr = (s) => (s.contextTokens != null ? `${fmtTokens(s.contextTokens)} ctx` : "—");
+
 const SessionRow = memo(function SessionRow({
   session,
   selected,
   termWidth,
   sortMode,
+  timeWidth,
+  usedWidth,
+  ctxWidth,
 }) {
   const timeStr = relativeTime(session.lastTimestamp);
   const pathStr = shortPath(session.cwd);
   const naturalBranch = session.gitBranch ?? null;
   const showDir = sortMode !== "directory";
 
-  const timeWidth = Math.max(timeStr.length, 4);
-  const numSeps = 1 + (showDir ? 1 : 0) + (naturalBranch ? 1 : 0);
-  const pool = Math.max(0, termWidth - 2 - numSeps * 2 - timeWidth);
-
+  // right-of-title columns: branch?, dir?, used, ctx, time — each preceded by a 2-space gap
+  const numRightCols = (naturalBranch ? 1 : 0) + (showDir ? 1 : 0) + 3;
   let dirWidth = showDir ? pathStr.length : 0;
   let branchWidth = naturalBranch ? naturalBranch.length : 0;
-  let titleWidth = pool - dirWidth - branchWidth;
+  let titleWidth =
+    termWidth - 2 - usedWidth - ctxWidth - timeWidth - dirWidth - branchWidth - numRightCols * 2;
 
-  if (titleWidth < TITLE_MIN) {
+  if (titleWidth < TITLE_MIN && showDir) {
     const dirShrink = Math.min(
       Math.max(0, dirWidth - DIR_MIN),
       TITLE_MIN - titleWidth,
@@ -58,7 +80,7 @@ const SessionRow = memo(function SessionRow({
     dirWidth -= dirShrink;
     titleWidth += dirShrink;
   }
-  if (titleWidth < TITLE_MIN) {
+  if (titleWidth < TITLE_MIN && naturalBranch) {
     const branchShrink = Math.min(
       Math.max(0, branchWidth - BRANCH_MIN),
       TITLE_MIN - titleWidth,
@@ -72,14 +94,16 @@ const SessionRow = memo(function SessionRow({
     truncate(session.title || "Untitled", titleWidth),
     titleWidth,
   );
-  const timeCol = pad(timeStr, timeWidth);
   const branchCol = naturalBranch ? truncate(naturalBranch, branchWidth) : null;
   const dirCol = showDir ? truncate(pathStr, dirWidth) : null;
+  const usedCol = padLeft(usedStr(session), usedWidth);
+  const ctxCol = padLeft(ctxStr(session), ctxWidth);
+  const timeCol = pad(timeStr, timeWidth);
 
   if (selected) {
     const branchPart = branchCol ? `  ${branchCol}` : "";
     const dirPart = dirCol ? `  ${dirCol}` : "";
-    const line = `> ${title}${branchPart}${dirPart}  ${timeCol}`;
+    const line = `> ${title}${branchPart}${dirPart}  ${usedCol}  ${ctxCol}  ${timeCol}`;
     const full = pad(line, termWidth);
     return h(
       Box,
@@ -97,6 +121,8 @@ const SessionRow = memo(function SessionRow({
       ? h(Text, { color: "yellow", dimColor: true }, `  ${branchCol}`)
       : null,
     dirCol ? h(Text, { color: "cyan", dimColor: true }, `  ${dirCol}`) : null,
+    h(Text, { dimColor: true }, `  ${usedCol}`),
+    h(Text, { color: "green", dimColor: true }, `  ${ctxCol}`),
     h(Text, { dimColor: true }, `  ${timeCol}`),
   );
 });
@@ -107,7 +133,7 @@ function DirectoryHeader({ cwd }) {
   return h(
     Box,
     { paddingLeft: 1 },
-    h(Text, { color: "yellow", dimColor: true }, shortPath(cwd)),
+    h(Text, { color: "yellow" }, shortPath(cwd)),
   );
 }
 
@@ -265,6 +291,143 @@ function DeleteConfirm({
   );
 }
 
+// ─── Usage dashboard ────────────────────────────────────────────────────────
+
+const SPARK = " ▁▂▃▄▅▆▇█";
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function bar(value, max, width) {
+  const n = max > 0 ? Math.round((value / max) * width) : 0;
+  return "█".repeat(n);
+}
+
+function sparkline(values) {
+  const max = Math.max(0, ...values);
+  return values
+    .map((v) => (max > 0 && v > 0 ? SPARK[Math.min(8, Math.ceil((v / max) * 8))] : SPARK[0]))
+    .join("");
+}
+
+function computeStats(sessions) {
+  let totalTokens = 0;
+  const byModel = {};
+  const byProject = new Map();
+  const byDay = new Map();
+
+  for (const s of sessions) {
+    totalTokens += s.tokens || 0;
+    for (const k in s.models || {}) {
+      const m = (byModel[k] ??= { tokens: 0 });
+      m.tokens += s.models[k].tokens;
+    }
+    const p = byProject.get(s.cwd) ?? { cwd: s.cwd, sessions: 0, tokens: 0 };
+    p.sessions++;
+    p.tokens += s.tokens || 0;
+    byProject.set(s.cwd, p);
+
+    const d = new Date(s.lastTimestamp);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    byDay.set(key, (byDay.get(key) ?? 0) + (s.tokens || 0));
+  }
+
+  // last 30 days of tokens, oldest → newest
+  const now = new Date();
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    days.push({ date: d, tokens: byDay.get(key) ?? 0 });
+  }
+
+  return {
+    totalSessions: sessions.length,
+    totalTokens,
+    byModel: Object.entries(byModel)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.tokens - a.tokens),
+    byProject: [...byProject.values()].sort((a, b) => b.tokens - a.tokens),
+    days,
+  };
+}
+
+function StatsView({ sessions, onBack, termWidth, termHeight }) {
+  const stats = useMemo(() => computeStats(sessions), [sessions]);
+
+  useInput((input, key) => {
+    if (input === "q" || input === "t" || key.escape) onBack();
+  });
+
+  const labelW = 9;
+  const barW = Math.min(24, Math.max(10, termWidth - 40));
+  const modelMax = Math.max(0, ...stats.byModel.map((m) => m.tokens));
+
+  const projMax = Math.max(0, ...stats.byProject.map((p) => p.tokens));
+  const maxProjects = Math.max(3, termHeight - 16);
+  const projects = stats.byProject.slice(0, maxProjects);
+  const projLabelW = Math.min(34, Math.max(12, termWidth - barW - 16));
+
+  const spark = sparkline(stats.days.map((d) => d.tokens));
+  const sparkStart = `${SHORT_MONTHS[stats.days[0].date.getMonth()]} ${stats.days[0].date.getDate()}`;
+  const sparkEnd = "today";
+
+  const section = (label) =>
+    h(Box, { marginTop: 1 }, h(Text, { bold: true, color: "cyan" }, label));
+
+  return h(
+    Box,
+    { flexDirection: "column" },
+    h(
+      Box,
+      { backgroundColor: "blue", paddingX: 1 },
+      h(Text, { color: "white", bold: true }, "Usage  ·  recorded token counts"),
+    ),
+    h(
+      Box,
+      { paddingX: 1, flexDirection: "column" },
+      h(
+        Text,
+        {},
+        `${stats.totalSessions} sessions   `,
+        h(Text, { color: "green", bold: true }, `${fmtTokens(stats.totalTokens)} tokens`),
+      ),
+
+      section("Tokens / day (30d)"),
+      h(
+        Text,
+        {},
+        h(Text, { dimColor: true }, `${pad(sparkStart, 7)} `),
+        h(Text, { color: "green" }, spark),
+        h(Text, { dimColor: true }, ` ${sparkEnd}`),
+      ),
+
+      section("By model"),
+      ...stats.byModel.map((m) =>
+        h(
+          Text,
+          { key: m.name },
+          pad(m.name, labelW),
+          h(Text, { color: "green" }, bar(m.tokens, modelMax, barW)),
+          h(Text, { dimColor: true }, ` ${fmtTokens(m.tokens)}`),
+        ),
+      ),
+
+      section("Top projects by tokens"),
+      ...projects.map((p) =>
+        h(
+          Text,
+          { key: p.cwd },
+          pad(truncate(shortPath(p.cwd), projLabelW), projLabelW),
+          " ",
+          h(Text, { color: "green" }, bar(p.tokens, projMax, barW)),
+          h(Text, { dimColor: true }, ` ${fmtTokens(p.tokens)}`),
+        ),
+      ),
+    ),
+    h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, "q/esc/t back")),
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App({ sessions: initialSessions, onResume }) {
@@ -277,12 +440,26 @@ export default function App({ sessions: initialSessions, onResume }) {
   const [selectedId, setSelectedId] = useState(initialSessions[0]?.sessionId);
   const [viewStart, setViewStart] = useState(0);
   const [mode, setMode] = useState("list");
-  const [sortMode, setSortMode] = useState("directory"); // 'recent' | 'directory' | 'lexic'
+  const [sortMode, setSortMode] = useState("recent"); // 'recent' | 'directory' | 'lexic'
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
 
   const listHeight =
     termHeight - HEADER_HEIGHT - SNIPPET_HEIGHT - HINT_HEIGHT - 1;
+
+  // shared column widths so count/time align across every row
+  const timeWidth = useMemo(
+    () => sessions.reduce((m, s) => Math.max(m, relativeTime(s.lastTimestamp).length), 4),
+    [sessions],
+  );
+  const usedWidth = useMemo(
+    () => sessions.reduce((m, s) => Math.max(m, usedStr(s).length), 1),
+    [sessions],
+  );
+  const ctxWidth = useMemo(
+    () => sessions.reduce((m, s) => Math.max(m, ctxStr(s).length), 1),
+    [sessions],
+  );
 
   // Sorted + grouped flat list of display items
   const displayItems = useMemo(() => {
@@ -324,16 +501,14 @@ export default function App({ sessions: initialSessions, onResume }) {
 
   const filteredItems = useMemo(() => {
     if (!searchQuery) return displayItems;
-    const q = searchQuery.toLowerCase();
-    // keep session items matching query; keep headers only if they have matching sessions below
+    // keep session items fuzzy-matching the query; keep headers only if they have matching sessions below
     const filtered = [];
     let pendingHeader = null;
     for (const item of displayItems) {
       if (item.type === "header") {
         pendingHeader = item;
       } else {
-        const title = (item.session.title || "Untitled").toLowerCase();
-        if (title.includes(q)) {
+        if (fuzzyMatch(searchQuery, item.session.title || "Untitled")) {
           if (pendingHeader) {
             filtered.push(pendingHeader);
             pendingHeader = null;
@@ -381,8 +556,14 @@ export default function App({ sessions: initialSessions, onResume }) {
       let newVs = vs;
       if (next < vs) newVs = next;
       else if (next >= vs + listHeight) newVs = next - listHeight + 1;
-      // pull back to include a directory header immediately above viewStart
-      if (newVs > 0 && filteredItems[newVs - 1]?.type === 'header') newVs--;
+      // pull back to include a directory header immediately above viewStart,
+      // but only if the selected row stays visible (else it falls off the bottom)
+      if (
+        newVs > 0 &&
+        filteredItems[newVs - 1]?.type === 'header' &&
+        next <= newVs - 1 + listHeight - 1
+      )
+        newVs--;
       return newVs;
     });
   }
@@ -433,6 +614,7 @@ export default function App({ sessions: initialSessions, onResume }) {
     else if (input === "/") {
       setIsSearching(true);
     } else if (input === "p" || input === " ") setMode("preview");
+    else if (input === "t") setMode("stats");
     else if (key.return || input === "r") {
       onResume(current);
       exit();
@@ -450,6 +632,15 @@ export default function App({ sessions: initialSessions, onResume }) {
   if (mode === "preview" && current) {
     return h(PreviewMode, {
       session: current,
+      onBack: () => setMode("list"),
+      termWidth,
+      termHeight,
+    });
+  }
+
+  if (mode === "stats") {
+    return h(StatsView, {
+      sessions,
       onBack: () => setMode("list"),
       termWidth,
       termHeight,
@@ -494,21 +685,21 @@ export default function App({ sessions: initialSessions, onResume }) {
     : "no user messages";
 
   const sortLabel = {
-    directory: "",
+    directory: "grouped by directory",
     recent: "sorted by most recent",
     lexic: "sorted lexicographically",
   }[sortMode];
   const matchCount = filteredItems.filter((i) => i.type === "session").length;
   const searchLabel =
     isSearching || searchQuery
-      ? `  /${searchQuery}${isSearching ? "█" : ""}  (${matchCount})`
+      ? ` │ /${searchQuery}${isSearching ? "█" : ""}  ${matchCount} matches`
       : "";
   const headerText = pad(
-    ` clod  (${sessions.length})${sortLabel ? "  " + sortLabel : ""}${searchLabel}`,
+    ` clod │ ${sessions.length} sessions │ ${sortLabel}${searchLabel}`,
     termWidth,
   );
   const navText = pad(
-    " ↑↓ navigate  / search  p preview  enter/r resume  D delete  s sort  q quit",
+    " ↑↓ navigate  / search  p preview  enter/r resume  t usage  D delete  s sort  q quit",
     termWidth,
   );
 
@@ -546,6 +737,9 @@ export default function App({ sessions: initialSessions, onResume }) {
               selected: item.session.sessionId === selectedId,
               termWidth,
               sortMode,
+              timeWidth,
+              usedWidth,
+              ctxWidth,
             }),
       ),
     ),
