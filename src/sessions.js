@@ -33,7 +33,9 @@ function modelKey(modelId) {
   return null
 }
 
-// Add one assistant message's usage into the per-model token accumulator { key: {tokens} }.
+// Add one assistant message's usage into the per-model accumulator, split by token type:
+// { key: {input, output, cacheRead, cacheWrite} }. cacheRead is kept separate because it
+// re-counts the same cached context every turn and dwarfs everything else (~10x).
 // Returns the context-window size at this turn (input + cache), or null if no usage.
 function accumulateUsage(message, acc) {
   const u = message?.usage
@@ -46,11 +48,20 @@ function accumulateUsage(message, acc) {
 
   const key = modelKey(message?.model)
   if (key) {
-    const m = (acc[key] ??= { tokens: 0 })
-    m.tokens += input + output + cacheRead + cacheWrite
+    const m = (acc[key] ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
+    m.input += input
+    m.output += output
+    m.cacheRead += cacheRead
+    m.cacheWrite += cacheWrite
   }
 
   return input + cacheRead + cacheWrite
+}
+
+// Real throughput: new tokens processed + generated, excluding cache re-reads.
+// Matches the figure shown in the shell status line.
+export function throughputOf(usage) {
+  return (usage.input || 0) + (usage.output || 0) + (usage.cacheWrite || 0)
 }
 
 async function parseSession(filePath) {
@@ -86,8 +97,14 @@ async function parseSession(filePath) {
 
     if (!cwd) return null
 
-    let tokens = 0
-    for (const k in models) tokens += models[k].tokens
+    const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+    for (const k in models) {
+      totals.input += models[k].input
+      totals.output += models[k].output
+      totals.cacheRead += models[k].cacheRead
+      totals.cacheWrite += models[k].cacheWrite
+    }
+    const throughput = throughputOf(totals)   // input + output + cacheWrite
 
     return {
       sessionId,
@@ -97,7 +114,8 @@ async function parseSession(filePath) {
       lastUserMessage,
       contextTokens,
       models,
-      tokens,
+      totals,
+      throughput,
       mtime: fileStats.mtimeMs,
       lastTimestamp: lastTimestamp ? new Date(lastTimestamp).getTime() : fileStats.mtimeMs,
       filePath,

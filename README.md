@@ -48,16 +48,21 @@ Claude Code stores all session files in `~/.claude/projects/`, regardless of whi
 
 Each row: session title · branch · project path · tokens used · context window · time since last activity
 
-`used` is cumulative billed tokens (cache reads included, so it runs large); `ctx`
-is the input context size of the session's most recent turn.
+`used` is real throughput: tokens processed and generated (input + output +
+cache writes), excluding cache reads. Cache reads re-count the same context
+every turn and would inflate the figure ~10x, so they're left out. `ctx` is the
+input context size of the session's most recent turn.
 
 Times within today are relative (`now`, `5m`, `3h`); older sessions show a date.
 
 ## Usage dashboard
 
-Press `t` for an aggregate view across all sessions: total tokens, a 30-day
-tokens-per-day sparkline, a per-model breakdown, and top projects by token count.
-All figures are real recorded token counts, no estimation.
+Press `t` for an aggregate view across all sessions: total throughput, a token
+breakdown by type (input / output / cache write / cache read), a 30-day
+throughput-per-day sparkline, a per-model breakdown, and top projects by
+throughput. The cache-inclusive grand total is shown alongside the headline so
+you can see how much of the raw count is cache re-reads. All figures are real
+recorded token counts, no estimation.
 
 Bottom bar: last user message from the selected session.
 

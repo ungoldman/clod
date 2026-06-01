@@ -6,6 +6,7 @@ import {
   relativeTime,
   shortPath,
   fmtTokens,
+  throughputOf,
 } from "./sessions.js";
 
 const h = React.createElement;
@@ -48,7 +49,7 @@ const TITLE_MIN = 10;
 const BRANCH_MIN = 8;
 const DIR_MIN = 10;
 
-const usedStr = (s) => (s.tokens ? `${fmtTokens(s.tokens)} used` : "—");
+const usedStr = (s) => (s.throughput ? `${fmtTokens(s.throughput)} used` : "—");
 const ctxStr = (s) => (s.contextTokens != null ? `${fmtTokens(s.contextTokens)} ctx` : "—");
 
 const SessionRow = memo(function SessionRow({
@@ -309,28 +310,36 @@ function sparkline(values) {
 }
 
 function computeStats(sessions) {
-  let totalTokens = 0;
+  // breakdown by token type across all sessions
+  const breakdown = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+  let totalThroughput = 0;
   const byModel = {};
   const byProject = new Map();
   const byDay = new Map();
 
   for (const s of sessions) {
-    totalTokens += s.tokens || 0;
+    const t = s.totals || { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+    breakdown.input += t.input;
+    breakdown.output += t.output;
+    breakdown.cacheWrite += t.cacheWrite;
+    breakdown.cacheRead += t.cacheRead;
+    totalThroughput += s.throughput || 0;
+
     for (const k in s.models || {}) {
-      const m = (byModel[k] ??= { tokens: 0 });
-      m.tokens += s.models[k].tokens;
+      const m = (byModel[k] ??= { throughput: 0 });
+      m.throughput += throughputOf(s.models[k]);
     }
-    const p = byProject.get(s.cwd) ?? { cwd: s.cwd, sessions: 0, tokens: 0 };
+    const p = byProject.get(s.cwd) ?? { cwd: s.cwd, sessions: 0, throughput: 0 };
     p.sessions++;
-    p.tokens += s.tokens || 0;
+    p.throughput += s.throughput || 0;
     byProject.set(s.cwd, p);
 
     const d = new Date(s.lastTimestamp);
     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    byDay.set(key, (byDay.get(key) ?? 0) + (s.tokens || 0));
+    byDay.set(key, (byDay.get(key) ?? 0) + (s.throughput || 0));
   }
 
-  // last 30 days of tokens, oldest → newest
+  // last 30 days of throughput, oldest → newest
   const now = new Date();
   const days = [];
   for (let i = 29; i >= 0; i--) {
@@ -342,11 +351,13 @@ function computeStats(sessions) {
 
   return {
     totalSessions: sessions.length,
-    totalTokens,
+    totalThroughput,
+    grandTotal: totalThroughput + breakdown.cacheRead,
+    breakdown,
     byModel: Object.entries(byModel)
       .map(([name, v]) => ({ name, ...v }))
-      .sort((a, b) => b.tokens - a.tokens),
-    byProject: [...byProject.values()].sort((a, b) => b.tokens - a.tokens),
+      .sort((a, b) => b.throughput - a.throughput),
+    byProject: [...byProject.values()].sort((a, b) => b.throughput - a.throughput),
     days,
   };
 }
@@ -360,9 +371,18 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
 
   const labelW = 9;
   const barW = Math.min(24, Math.max(10, termWidth - 40));
-  const modelMax = Math.max(0, ...stats.byModel.map((m) => m.tokens));
+  const modelMax = Math.max(0, ...stats.byModel.map((m) => m.throughput));
 
-  const projMax = Math.max(0, ...stats.byProject.map((p) => p.tokens));
+  const bd = stats.breakdown;
+  const bdRows = [
+    { label: "Input", value: bd.input },
+    { label: "Output", value: bd.output },
+    { label: "Cache wr", value: bd.cacheWrite },
+    { label: "Cache rd", value: bd.cacheRead },
+  ];
+  const bdMax = Math.max(0, ...bdRows.map((r) => r.value));
+
+  const projMax = Math.max(0, ...stats.byProject.map((p) => p.throughput));
   const maxProjects = Math.max(3, termHeight - 16);
   const projects = stats.byProject.slice(0, maxProjects);
   const projLabelW = Math.min(34, Math.max(12, termWidth - barW - 16));
@@ -380,7 +400,7 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
     h(
       Box,
       { backgroundColor: "blue", paddingX: 1 },
-      h(Text, { color: "white", bold: true }, "Usage  ·  recorded token counts"),
+      h(Text, { color: "white", bold: true }, "Usage  ·  real throughput (cache reads excluded)"),
     ),
     h(
       Box,
@@ -389,10 +409,22 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
         Text,
         {},
         `${stats.totalSessions} sessions   `,
-        h(Text, { color: "green", bold: true }, `${fmtTokens(stats.totalTokens)} tokens`),
+        h(Text, { color: "green", bold: true }, `${fmtTokens(stats.totalThroughput)} throughput`),
+        h(Text, { dimColor: true }, `   ${fmtTokens(stats.grandTotal)} incl. cache reads`),
       ),
 
-      section("Tokens / day (30d)"),
+      section("Token breakdown"),
+      ...bdRows.map((r) =>
+        h(
+          Text,
+          { key: r.label },
+          pad(r.label, labelW),
+          h(Text, { color: r.label === "Cache rd" ? "gray" : "green" }, bar(r.value, bdMax, barW)),
+          h(Text, { dimColor: true }, ` ${fmtTokens(r.value)}`),
+        ),
+      ),
+
+      section("Throughput / day (30d)"),
       h(
         Text,
         {},
@@ -407,20 +439,20 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
           Text,
           { key: m.name },
           pad(m.name, labelW),
-          h(Text, { color: "green" }, bar(m.tokens, modelMax, barW)),
-          h(Text, { dimColor: true }, ` ${fmtTokens(m.tokens)}`),
+          h(Text, { color: "green" }, bar(m.throughput, modelMax, barW)),
+          h(Text, { dimColor: true }, ` ${fmtTokens(m.throughput)}`),
         ),
       ),
 
-      section("Top projects by tokens"),
+      section("Top projects by throughput"),
       ...projects.map((p) =>
         h(
           Text,
           { key: p.cwd },
           pad(truncate(shortPath(p.cwd), projLabelW), projLabelW),
           " ",
-          h(Text, { color: "green" }, bar(p.tokens, projMax, barW)),
-          h(Text, { dimColor: true }, ` ${fmtTokens(p.tokens)}`),
+          h(Text, { color: "green" }, bar(p.throughput, projMax, barW)),
+          h(Text, { dimColor: true }, ` ${fmtTokens(p.throughput)}`),
         ),
       ),
     ),
