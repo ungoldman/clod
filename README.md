@@ -35,7 +35,7 @@ node src/index.js
 | `enter` / `r` | Resume selected session |
 | `p` / `space` | Preview conversation |
 | `t` | Usage dashboard (token counts) |
-| `/` | Fuzzy search by title |
+| `/` | Search titles (fuzzy) and message contents |
 | `D` | Delete (moves to Trash) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
 | `q` / `esc` | Quit |

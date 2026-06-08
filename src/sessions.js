@@ -25,6 +25,13 @@ function extractText(content) {
   return ''
 }
 
+// All text blocks of a message, joined; used to build the searchable content blob.
+function textBlocks(content) {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.filter(b => b.type === 'text').map(b => b.text).join(' ')
+  return ''
+}
+
 function modelKey(modelId) {
   if (!modelId) return null
   if (modelId.includes('opus')) return 'opus'
@@ -78,6 +85,7 @@ async function parseSession(filePath) {
     let lastTimestamp = null
     let contextTokens = null // input context of the most recent assistant turn
     const models = {}
+    const searchParts = [] // user + assistant prose, lowercased at the end for content search
 
     for (const line of lines) {
       try {
@@ -88,9 +96,11 @@ async function parseSession(filePath) {
         if (r.timestamp) lastTimestamp = r.timestamp
         if (isRealUserMessage(r)) {
           lastUserMessage = extractText(r.message.content)
+          searchParts.push(lastUserMessage)
         } else if (r.type === 'assistant') {
           const ctx = accumulateUsage(r.message, models) // usage on every turn, incl. tool-only
           if (ctx != null) contextTokens = ctx
+          searchParts.push(textBlocks(r.message?.content))
         }
       } catch {}
     }
@@ -116,6 +126,7 @@ async function parseSession(filePath) {
       models,
       totals,
       throughput,
+      searchText: searchParts.join(' ').toLowerCase(),
       mtime: fileStats.mtimeMs,
       lastTimestamp: lastTimestamp ? new Date(lastTimestamp).getTime() : fileStats.mtimeMs,
       filePath,

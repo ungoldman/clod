@@ -43,6 +43,13 @@ function fuzzyMatch(query, target) {
   return qi === q.length;
 }
 
+// Title gets fuzzy (it's short); content gets a strict substring (fuzzy over a long
+// blob matches almost everything). A session matches if either does.
+function sessionMatches(query, session) {
+  if (fuzzyMatch(query, session.title || "Untitled")) return true;
+  return session.searchText ? session.searchText.includes(query.toLowerCase()) : false;
+}
+
 // ─── Row ─────────────────────────────────────────────────────────────────────
 
 const TITLE_MIN = 10;
@@ -533,14 +540,14 @@ export default function App({ sessions: initialSessions, onResume }) {
 
   const filteredItems = useMemo(() => {
     if (!searchQuery) return displayItems;
-    // keep session items fuzzy-matching the query; keep headers only if they have matching sessions below
+    // keep session items matching the query (title or content); keep headers only if they have matching sessions below
     const filtered = [];
     let pendingHeader = null;
     for (const item of displayItems) {
       if (item.type === "header") {
         pendingHeader = item;
       } else {
-        if (fuzzyMatch(searchQuery, item.session.title || "Untitled")) {
+        if (sessionMatches(searchQuery, item.session)) {
           if (pendingHeader) {
             filtered.push(pendingHeader);
             pendingHeader = null;
