@@ -52,7 +52,7 @@ function sessionMatches(query, session) {
 
 // ─── Row ─────────────────────────────────────────────────────────────────────
 
-const TITLE_MIN = 10;
+// below these widths a column is hidden rather than truncated into noise
 const BRANCH_MIN = 8;
 const DIR_MIN = 10;
 
@@ -73,37 +73,33 @@ const SessionRow = memo(function SessionRow({
   const naturalBranch = session.gitBranch ?? null;
   const showDir = sortMode !== "directory";
 
-  // right-of-title columns: branch?, dir?, used, ctx, time — each preceded by a 2-space gap
-  const numRightCols = (naturalBranch ? 1 : 0) + (showDir ? 1 : 0) + 3;
-  let dirWidth = showDir ? pathStr.length : 0;
-  let branchWidth = naturalBranch ? naturalBranch.length : 0;
-  let titleWidth =
-    termWidth - 2 - usedWidth - ctxWidth - timeWidth - dirWidth - branchWidth - numRightCols * 2;
+  // Title-first allocation: the title always gets its natural width; dir, then
+  // branch, fill in from what's left and are hidden (not stubbed) when it's too
+  // tight. flex = room for title + branch + dir after the fixed right block
+  // (used, ctx, time + their three 2-space gaps).
+  const fullTitle = session.title || "Untitled";
+  const flex = termWidth - 2 - usedWidth - ctxWidth - timeWidth - 6;
+  let avail = flex - fullTitle.length;
 
-  if (titleWidth < TITLE_MIN && showDir) {
-    const dirShrink = Math.min(
-      Math.max(0, dirWidth - DIR_MIN),
-      TITLE_MIN - titleWidth,
-    );
-    dirWidth -= dirShrink;
-    titleWidth += dirShrink;
+  let dirWidth = 0;
+  if (showDir && avail >= DIR_MIN + 2) {
+    dirWidth = Math.min(pathStr.length, avail - 2);
+    avail -= dirWidth + 2;
   }
-  if (titleWidth < TITLE_MIN && naturalBranch) {
-    const branchShrink = Math.min(
-      Math.max(0, branchWidth - BRANCH_MIN),
-      TITLE_MIN - titleWidth,
-    );
-    branchWidth -= branchShrink;
-    titleWidth += branchShrink;
+  let branchWidth = 0;
+  if (naturalBranch && avail >= BRANCH_MIN + 2) {
+    branchWidth = Math.min(naturalBranch.length, avail - 2);
+    avail -= branchWidth + 2;
   }
-  titleWidth = Math.max(TITLE_MIN, titleWidth);
-
-  const title = pad(
-    truncate(session.title || "Untitled", titleWidth),
-    titleWidth,
+  // title absorbs the leftover as padding so the right block stays aligned
+  const titleWidth = Math.max(
+    1,
+    flex - (dirWidth ? dirWidth + 2 : 0) - (branchWidth ? branchWidth + 2 : 0),
   );
-  const branchCol = naturalBranch ? truncate(naturalBranch, branchWidth) : null;
-  const dirCol = showDir ? truncate(pathStr, dirWidth) : null;
+
+  const title = pad(truncate(fullTitle, titleWidth), titleWidth);
+  const branchCol = branchWidth > 0 ? truncate(naturalBranch, branchWidth) : null;
+  const dirCol = dirWidth > 0 ? truncate(pathStr, dirWidth) : null;
   const usedCol = padLeft(usedStr(session), usedWidth);
   const ctxCol = padLeft(ctxStr(session), ctxWidth);
   const timeCol = pad(timeStr, timeWidth);
