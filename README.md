@@ -36,7 +36,7 @@ node src/index.js
 | `p` / `space` | Preview conversation |
 | `t` | Usage dashboard (token counts) |
 | `/` | Search titles (fuzzy) and message contents |
-| `D` | Delete (moves to Trash) |
+| `D` | Delete (moves to Trash; includes file-history, session-env, and history.jsonl prompt lines) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
 | `q` / `esc` | Quit |
 

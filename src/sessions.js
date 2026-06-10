@@ -1,9 +1,10 @@
-import { readdir, readFile, stat } from 'fs/promises'
+import { readdir, readFile, stat, writeFile } from 'fs/promises'
 import trash from 'trash'
 import { join, basename } from 'path'
 import { homedir } from 'os'
 
-const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
+const CLAUDE_DIR = join(homedir(), '.claude')
+const PROJECTS_DIR = join(CLAUDE_DIR, 'projects')
 
 // Claude Code injects system content as XML-tagged blocks; any message starting
 // with an opening tag is injected content, not a real user message
@@ -187,14 +188,54 @@ export async function getSessionMessages(filePath) {
   }
 }
 
+// A session is more than its transcript. Claude Code also keeps, keyed by
+// session id: file-history/ (snapshots of files edited during the session),
+// session-env/, and the session's prompt lines in the global history.jsonl.
+// Everything goes to the Trash, so a delete stays reversible.
 export async function deleteSession(filePath) {
-  const siblingDir = filePath.replace(/\.jsonl$/, '')
-  const toTrash = [filePath]
-  try {
-    await stat(siblingDir)
-    toTrash.push(siblingDir)
-  } catch {}
+  const sessionId = basename(filePath, '.jsonl')
+  const candidates = [
+    filePath,
+    filePath.replace(/\.jsonl$/, ''), // sibling dir (e.g. subagent transcripts)
+    join(CLAUDE_DIR, 'file-history', sessionId),
+    join(CLAUDE_DIR, 'session-env', sessionId),
+  ]
+  const toTrash = []
+  for (const p of candidates) {
+    try {
+      await stat(p)
+      toTrash.push(p)
+    } catch {}
+  }
   await trash(toTrash)
+  await scrubHistory(sessionId)
+}
+
+// Remove the session's prompt lines from history.jsonl. The removed lines are
+// written to their own file and that file is trashed, so even this part of the
+// delete can be recovered from the Trash.
+async function scrubHistory(sessionId) {
+  const historyPath = join(CLAUDE_DIR, 'history.jsonl')
+  let raw
+  try {
+    raw = await readFile(historyPath, 'utf8')
+  } catch {
+    return
+  }
+  const needle = `"sessionId":"${sessionId}"`
+  if (!raw.includes(needle)) return
+
+  const kept = []
+  const removed = []
+  for (const line of raw.split('\n')) {
+    if (line.includes(needle)) removed.push(line)
+    else kept.push(line)
+  }
+
+  const removedPath = join(CLAUDE_DIR, `history-removed-${sessionId}.jsonl`)
+  await writeFile(removedPath, removed.join('\n') + '\n')
+  await writeFile(historyPath, kept.join('\n'))
+  await trash([removedPath])
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
