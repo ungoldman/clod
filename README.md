@@ -27,6 +27,30 @@ Or skip the link step and run it in place from the clone:
 node src/index.js
 ```
 
+## Shell integration (cd on exit)
+
+When you resume a session, claude runs in that session's project directory. To
+have your shell also end up there after claude exits, add one line to `.zshrc`:
+
+```zsh
+source /path/to/clod/shell/clod.zsh
+```
+
+This defines a `clod` function wrapping the bin (the bin stays the entry point —
+the function calls it via `command clod`). A child process can't change its
+parent shell's directory, so the bin reports the path over a file descriptor and
+the function, running inside your shell, does the `cd`. The one source line is
+irreducible; the function itself lives in this repo and updates with it.
+
+Quitting without resuming leaves your shell where it was. Without the wrapper,
+clod behaves exactly as before; nothing is written unless `CLOD_CWD_FD` is set.
+
+Panes split *while* the resumed session is running also open in the project
+directory: clod reports it to the terminal via OSC 7 (iTerm2, VS Code, Ghostty,
+WezTerm, kitty) and aligns its own working directory for terminals that poll
+the foreground process instead (tmux with `split-window -c
+"#{pane_current_path}"`, Terminal.app).
+
 ## Keys
 
 | Key | Action |
