@@ -465,7 +465,7 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
-export default function App({ sessions: initialSessions, onResume }) {
+export default function App({ sessions: initialSessions, onResume, loadRest }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const termWidth = stdout?.columns ?? 80;
@@ -478,6 +478,17 @@ export default function App({ sessions: initialSessions, onResume }) {
   const [sortMode, setSortMode] = useState("recent"); // 'recent' | 'directory' | 'lexic'
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const [loading, setLoading] = useState(Boolean(loadRest));
+
+  // older sessions parse in the background; the rest of the list arrives in one
+  // batch (disjoint from the initial files, so a delete can't be resurrected)
+  useEffect(() => {
+    if (!loadRest) return;
+    loadRest().then((more) => {
+      setSessions((cur) => [...cur, ...more]);
+      setLoading(false);
+    });
+  }, []);
 
   const listHeight =
     termHeight - HEADER_HEIGHT - SNIPPET_HEIGHT - HINT_HEIGHT - 1;
@@ -730,7 +741,7 @@ export default function App({ sessions: initialSessions, onResume }) {
       ? ` │ /${searchQuery}${isSearching ? "█" : ""}  ${matchCount} matches`
       : "";
   const headerText = pad(
-    ` clod │ ${sessions.length} sessions │ ${sortLabel}${searchLabel}`,
+    ` clod │ ${sessions.length}${loading ? "+" : ""} sessions │ ${sortLabel}${searchLabel}${loading ? " │ loading…" : ""}`,
     termWidth,
   );
   const navText = pad(

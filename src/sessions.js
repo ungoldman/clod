@@ -1,5 +1,4 @@
 import { readdir, readFile, stat, writeFile } from 'fs/promises'
-import trash from 'trash'
 import { join, basename } from 'path'
 import { homedir } from 'os'
 
@@ -72,12 +71,22 @@ export function throughputOf(usage) {
   return (usage.input || 0) + (usage.output || 0) + (usage.cacheWrite || 0)
 }
 
-async function parseSession(filePath) {
+// last capture of re in str; re must have the g flag
+function matchLast(re, str) {
+  let m
+  let last = null
+  while ((m = re.exec(str))) last = m[1]
+  return last
+}
+
+async function parseSession(filePath, fileStats) {
   const sessionId = basename(filePath, '.jsonl')
 
   try {
-    const [fileStats, raw] = await Promise.all([stat(filePath), readFile(filePath, 'utf8')])
-    const lines = raw.split('\n').filter(Boolean)
+    // Read as a Buffer and decode per line, only as much as the sniff needs.
+    // Skipped lines (most of the bytes) never get decoded at all; that decode
+    // is otherwise the single largest startup cost.
+    const buf = await readFile(filePath)
 
     let title = null
     let cwd = null
@@ -88,22 +97,70 @@ async function parseSession(filePath) {
     const models = {}
     const searchParts = [] // user + assistant prose, lowercased at the end for content search
 
-    for (const line of lines) {
-      try {
-        const r = JSON.parse(line)
-        if (r.type === 'custom-title' && r.customTitle) title = r.customTitle
-        if (r.cwd && !cwd) cwd = r.cwd  // first-write: cwd doesn't change mid-session
-        if (r.gitBranch && r.gitBranch !== 'HEAD') gitBranch = r.gitBranch  // last-write: captures branch switches
-        if (r.timestamp) lastTimestamp = r.timestamp
-        if (isRealUserMessage(r)) {
-          lastUserMessage = extractText(r.message.content)
-          searchParts.push(lastUserMessage)
-        } else if (r.type === 'assistant') {
-          const ctx = accumulateUsage(r.message, models) // usage on every turn, incl. tool-only
-          if (ctx != null) contextTokens = ctx
-          searchParts.push(textBlocks(r.message?.content))
-        }
-      } catch {}
+    const setEnvelope = (ts, branch, dir) => {
+      if (ts) lastTimestamp = ts
+      if (branch && branch !== 'HEAD') gitBranch = branch  // last-write: captures branch switches
+      if (dir && !cwd) cwd = dir  // first-write: cwd doesn't change mid-session
+    }
+
+    // Most bytes are tool results, file snapshots, and attachments that clod never
+    // displays. Sniff each line's head to decide whether it needs a JSON.parse at
+    // all. The sniff only gates parsing — handling dispatches on the parsed type —
+    // so a false positive costs one parse, never wrong data. Assistant records
+    // serialize "message" before the envelope "type", so the early marker is the
+    // message's "role"; user records lead with the envelope "type". For skipped
+    // message lines the envelope tail (timestamp, gitBranch, cwd) is regexed out.
+    // (Byte-offset decoding can split a multibyte char at a window edge; that
+    // yields a replacement char, which never corrupts the ASCII markers/fields
+    // these windows are scanned for.)
+    const NL = 10
+    for (let pos = 0, lineEnd; pos < buf.length; pos = lineEnd + 1) {
+      lineEnd = buf.indexOf(NL, pos)
+      if (lineEnd === -1) lineEnd = buf.length
+      if (lineEnd === pos) continue
+
+      const head = buf.toString('utf8', pos, Math.min(pos + 600, lineEnd))
+      const isAssistant =
+        head.includes('"role":"assistant"') || head.includes('"type":"assistant"')
+      const isUser =
+        !isAssistant && (head.includes('"type":"user"') || head.includes('"role":"user"'))
+      const isProse =
+        isAssistant ||
+        (isUser &&
+          !head.includes('"isMeta":true') &&
+          !head.includes('"tool_use_id"') &&
+          !head.includes('"type":"tool_result"'))
+
+      if (isProse) {
+        try {
+          const r = JSON.parse(buf.toString('utf8', pos, lineEnd))
+          setEnvelope(r.timestamp, r.gitBranch, r.cwd)
+          if (r.type === 'assistant') {
+            const ctx = accumulateUsage(r.message, models) // usage on every turn, incl. tool-only
+            if (ctx != null) contextTokens = ctx
+            searchParts.push(textBlocks(r.message?.content))
+          } else if (isRealUserMessage(r)) {
+            lastUserMessage = extractText(r.message.content)
+            searchParts.push(lastUserMessage)
+          }
+        } catch {}
+      } else if (
+        isUser ||
+        head.includes('"type":"system"') ||
+        /^\{"type":"(attachment|pr-link|queue-operation)"/.test(head)
+      ) {
+        const tail = buf.toString('utf8', Math.max(pos, lineEnd - 400), lineEnd)
+        setEnvelope(
+          matchLast(/"timestamp":"([^"]+)"/g, tail),
+          matchLast(/"gitBranch":"([^"]*)"/g, tail),
+          matchLast(/"cwd":"([^"]*)"/g, tail),
+        )
+      } else if (head.includes('"type":"custom-title"')) {
+        try {
+          const r = JSON.parse(buf.toString('utf8', pos, lineEnd))
+          if (r.customTitle) title = r.customTitle
+        } catch {}
+      }
     }
 
     if (!cwd) return null
@@ -137,7 +194,10 @@ async function parseSession(filePath) {
   }
 }
 
-export async function loadSessions() {
+// All session files with stats, newest first. mtime is a faithful proxy for the
+// last record's timestamp (files are append-only), so the head of this list is
+// what a recency-sorted viewport needs parsed first.
+export async function listSessionFiles() {
   let projects
   try {
     projects = await readdir(PROJECTS_DIR)
@@ -145,21 +205,40 @@ export async function loadSessions() {
     return []
   }
 
-  const results = await Promise.all(
-    projects.map(async (project) => {
-      const projectPath = join(PROJECTS_DIR, project)
+  const files = (
+    await Promise.all(
+      projects.map(async (project) => {
+        const projectPath = join(PROJECTS_DIR, project)
+        try {
+          const names = await readdir(projectPath)
+          return names.filter(f => f.endsWith('.jsonl')).map(f => join(projectPath, f))
+        } catch {
+          return []
+        }
+      })
+    )
+  ).flat()
+
+  const stats = await Promise.all(
+    files.map(async (filePath) => {
       try {
-        const files = await readdir(projectPath)
-        return Promise.all(
-          files.filter(f => f.endsWith('.jsonl')).map(f => parseSession(join(projectPath, f)))
-        )
+        return { filePath, stats: await stat(filePath) }
       } catch {
-        return []
+        return null
       }
     })
   )
+  return stats.filter(Boolean).sort((a, b) => b.stats.mtimeMs - a.stats.mtimeMs)
+}
 
-  return results.flat().filter(Boolean).sort((a, b) => b.lastTimestamp - a.lastTimestamp)
+export async function parseSessions(files) {
+  const sessions = await Promise.all(files.map(f => parseSession(f.filePath, f.stats)))
+  return sessions.filter(Boolean)
+}
+
+export async function loadSessions() {
+  const sessions = await parseSessions(await listSessionFiles())
+  return sessions.sort((a, b) => b.lastTimestamp - a.lastTimestamp)
 }
 
 export async function getSessionMessages(filePath) {
@@ -207,6 +286,7 @@ export async function deleteSession(filePath) {
       toTrash.push(p)
     } catch {}
   }
+  const { default: trash } = await import('trash') // lazy: only deletes need it
   await trash(toTrash)
   await scrubHistory(sessionId)
 }
@@ -235,6 +315,7 @@ async function scrubHistory(sessionId) {
   const removedPath = join(CLAUDE_DIR, `history-removed-${sessionId}.jsonl`)
   await writeFile(removedPath, removed.join('\n') + '\n')
   await writeFile(historyPath, kept.join('\n'))
+  const { default: trash } = await import('trash')
   await trash([removedPath])
 }
 
