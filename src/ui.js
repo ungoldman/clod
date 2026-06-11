@@ -465,29 +465,33 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
-export default function App({ sessions: initialSessions, onResume, loadRest }) {
+export default function App({ loadFirst, loadRest, onResume }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const termWidth = stdout?.columns ?? 80;
-  const termHeight = stdout?.rows ?? 24;
+  const termWidth = stdout?.columns || 80;
+  const termHeight = stdout?.rows || 24;
 
-  const [sessions, setSessions] = useState(initialSessions);
-  const [selectedId, setSelectedId] = useState(initialSessions[0]?.sessionId);
+  const [sessions, setSessions] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const [viewStart, setViewStart] = useState(0);
   const [mode, setMode] = useState("list");
   const [sortMode, setSortMode] = useState("recent"); // 'recent' | 'directory' | 'lexic'
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [loading, setLoading] = useState(Boolean(loadRest));
+  const [loading, setLoading] = useState(true);
 
-  // older sessions parse in the background; the rest of the list arrives in one
-  // batch (disjoint from the initial files, so a delete can't be resurrected)
+  // The UI paints before any session is parsed: the newest batch lands first,
+  // older sessions follow in one background batch (disjoint from the first, so
+  // a delete can't be resurrected by the merge).
   useEffect(() => {
-    if (!loadRest) return;
-    loadRest().then((more) => {
-      setSessions((cur) => [...cur, ...more]);
+    (async () => {
+      setSessions(await loadFirst());
+      if (loadRest) {
+        const more = await loadRest();
+        setSessions((cur) => [...cur, ...more]);
+      }
       setLoading(false);
-    });
+    })();
   }, []);
 
   const listHeight =
@@ -659,12 +663,12 @@ export default function App({ sessions: initialSessions, onResume, loadRest }) {
     else if (key.downArrow) navigate(1);
     else if (input === "/") {
       setIsSearching(true);
-    } else if (input === "p" || input === " ") setMode("preview");
+    } else if ((input === "p" || input === " ") && current) setMode("preview");
     else if (input === "t") setMode("stats");
-    else if (key.return || input === "r") {
+    else if ((key.return || input === "r") && current) {
       onResume(current);
       exit();
-    } else if (input === "D") setMode("deleting");
+    } else if (input === "D" && current) setMode("deleting");
     else if (input === "s") {
       setSortMode((m) =>
         m === "recent" ? "lexic" : m === "directory" ? "recent" : "directory",
@@ -728,7 +732,9 @@ export default function App({ sessions: initialSessions, onResume, loadRest }) {
 
   const snippet = current?.lastUserMessage
     ? truncate(current.lastUserMessage.replace(/\n+/g, " "), termWidth - 6)
-    : "no user messages";
+    : loading && !current
+      ? "…"
+      : "no user messages";
 
   const sortLabel = {
     directory: "grouped by directory",
@@ -741,7 +747,9 @@ export default function App({ sessions: initialSessions, onResume, loadRest }) {
       ? ` │ /${searchQuery}${isSearching ? "█" : ""}  ${matchCount} matches`
       : "";
   const headerText = pad(
-    ` clod │ ${sessions.length}${loading ? "+" : ""} sessions │ ${sortLabel}${searchLabel}${loading ? " │ loading…" : ""}`,
+    sessions.length === 0 && loading
+      ? " clod │ loading sessions…"
+      : ` clod │ ${sessions.length}${loading ? "+" : ""} sessions │ ${sortLabel}${searchLabel}${loading ? " │ loading…" : ""}`,
     termWidth,
   );
   const navText = pad(
@@ -774,6 +782,9 @@ export default function App({ sessions: initialSessions, onResume, loadRest }) {
     h(
       Box,
       { flexDirection: "column", height: listHeight },
+      viewSlice.length === 0 && loading
+        ? h(Box, { paddingX: 2 }, h(Text, { dimColor: true }, "Loading…"))
+        : null,
       ...viewSlice.map((item, i) =>
         item.type === "header"
           ? h(DirectoryHeader, { key: item.cwd, cwd: item.cwd })

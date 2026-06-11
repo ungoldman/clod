@@ -5,30 +5,24 @@ import { listSessionFiles, parseSessions } from './sessions.js'
 // app pull in the rest in the background.
 const FIRST_BATCH = 40
 
-// Kick off the data load before importing the UI stack; the file reads and the
-// react/ink import cost then overlap instead of stacking.
-process.stdout.write('Loading sessions…\r')
-const dataPromise = listSessionFiles().then(async (files) => ({
-  files,
-  sessions: await parseSessions(files.slice(0, FIRST_BATCH)),
-}))
-
-const [{ default: React }, { render }, { default: App }] = await Promise.all([
-  import('react'),
-  import('ink'),
-  import('./ui.js'),
-])
-
-const { files, sessions } = await dataPromise
-process.stdout.write('\r\x1b[K')
+const files = await listSessionFiles() // a few ms: readdir + stat only
 
 if (files.length === 0) {
   console.log('No Claude sessions found in ~/.claude/projects')
   process.exit(0)
 }
 
+// Parsing starts now and overlaps the react/ink import; the UI paints
+// immediately and the list streams in.
+const firstBatch = parseSessions(files.slice(0, FIRST_BATCH))
 const loadRest =
   files.length > FIRST_BATCH ? () => parseSessions(files.slice(FIRST_BATCH)) : null
+
+const [{ default: React }, { render }, { default: App }] = await Promise.all([
+  import('react'),
+  import('ink'),
+  import('./ui.js'),
+])
 
 let resumeTarget = null
 
@@ -37,7 +31,7 @@ process.on('exit', () => process.stdout.write('\x1b[?1049l')) // restore on any 
 
 const { waitUntilExit } = render(
   React.createElement(App, {
-    sessions,
+    loadFirst: () => firstBatch,
     loadRest,
     onResume: (session) => { resumeTarget = session },
   })
