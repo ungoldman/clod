@@ -8,6 +8,7 @@ import {
   fmtTokens,
   throughputOf,
 } from "./sessions.js";
+import { saveConfig } from "./config.js";
 
 const h = React.createElement;
 const { useState, useEffect, useMemo, memo } = React;
@@ -465,7 +466,7 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
-export default function App({ loadFirst, loadRest, onResume }) {
+export default function App({ loadFirst, loadRest, initialSortMode, onResume }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const termWidth = stdout?.columns || 80;
@@ -475,7 +476,7 @@ export default function App({ loadFirst, loadRest, onResume }) {
   const [selectedId, setSelectedId] = useState(null);
   const [viewStart, setViewStart] = useState(0);
   const [mode, setMode] = useState("list");
-  const [sortMode, setSortMode] = useState("recent"); // 'recent' | 'directory' | 'lexic'
+  const [sortMode, setSortMode] = useState(initialSortMode ?? "recent"); // 'recent' | 'directory' | 'lexic'
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -670,10 +671,11 @@ export default function App({ loadFirst, loadRest, onResume }) {
       exit();
     } else if (input === "D" && current) setMode("deleting");
     else if (input === "s") {
-      setSortMode((m) =>
-        m === "recent" ? "lexic" : m === "directory" ? "recent" : "directory",
-      );
+      const next =
+        sortMode === "recent" ? "lexic" : sortMode === "directory" ? "recent" : "directory";
+      setSortMode(next);
       setViewStart(0);
+      saveConfig({ sortMode: next }); // persist for next launch (fire and forget)
     } else if (input === "q" || key.escape) exit();
   });
 

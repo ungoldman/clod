@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { listSessionFiles, parseSessions } from './sessions.js'
+import { loadConfig } from './config.js'
 
 // Parse just enough newest sessions to fill a tall viewport, paint, and let the
 // app pull in the rest in the background.
@@ -18,10 +19,11 @@ const firstBatch = parseSessions(files.slice(0, FIRST_BATCH))
 const loadRest =
   files.length > FIRST_BATCH ? () => parseSessions(files.slice(FIRST_BATCH)) : null
 
-const [{ default: React }, { render }, { default: App }] = await Promise.all([
+const [{ default: React }, { render }, { default: App }, config] = await Promise.all([
   import('react'),
   import('ink'),
   import('./ui.js'),
+  loadConfig(),
 ])
 
 let resumeTarget = null
@@ -33,6 +35,7 @@ const { waitUntilExit } = render(
   React.createElement(App, {
     loadFirst: () => firstBatch,
     loadRest,
+    initialSortMode: config.sortMode,
     onResume: (session) => { resumeTarget = session },
   })
 )
