@@ -23,6 +23,10 @@ const apply = process.argv.includes('--apply')
 const CLAUDE = join(homedir(), '.claude')
 const PROJECTS = join(CLAUDE, 'projects')
 
+// only ever consider session-id-named entries, so stray files (.DS_Store, etc.)
+// are never mistaken for orphans
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 // valid ids: any transcript stem, with the agent- subsession prefix stripped
 const valid = new Set()
 for (const p of await readdir(PROJECTS)) {
@@ -41,7 +45,7 @@ for (const sub of ['file-history', 'session-env', 'tasks']) {
   try { names = await readdir(dir) } catch { continue }
   let n = 0
   for (const name of names) {
-    if (!valid.has(name)) { toTrash.push(join(dir, name)); n++ }
+    if (UUID.test(name) && !valid.has(name)) { toTrash.push(join(dir, name)); n++ }
   }
   console.log(`  ${sub}: ${n} orphan(s)`)
 }
@@ -50,7 +54,7 @@ try {
   let n = 0
   for (const name of await readdir(telDir)) {
     const m = name.match(/^1p_failed_events\.([^.]+)\./)
-    if (m && !valid.has(m[1])) { toTrash.push(join(telDir, name)); n++ }
+    if (m && UUID.test(m[1]) && !valid.has(m[1])) { toTrash.push(join(telDir, name)); n++ }
   }
   console.log(`  telemetry: ${n} orphan(s)`)
 } catch {}
