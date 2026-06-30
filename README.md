@@ -42,6 +42,7 @@ node src/index.js
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Navigate list |
+| `PgUp` / `PgDn` | Jump up/down a page |
 | `/` | Search titles (fuzzy) and message contents |
 | `space` / `p` | Preview conversation |
 | `enter` / `r` | Resume selected session |

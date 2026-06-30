@@ -618,6 +618,36 @@ export default function App({ loadFirst, loadRest, initialSortMode, onResume }) 
     });
   }
 
+  // Move selection and viewport by a full page, landing on a session item and
+  // clamping at the list edges.
+  function page(dir) {
+    if (filteredItems.length === 0 || selectedIdx < 0) return;
+    const last = filteredItems.length - 1;
+    const step = dir * listHeight;
+    const target = Math.max(0, Math.min(last, selectedIdx + step));
+    let t = target;
+    while (t >= 0 && t <= last && filteredItems[t].type === "header") t += dir;
+    if (t < 0 || t > last) {
+      t = target;
+      while (t >= 0 && t <= last && filteredItems[t].type === "header") t -= dir;
+    }
+    if (t < 0 || t > last) return;
+    setSelectedId(filteredItems[t].session.sessionId);
+    setViewStart((vs) => {
+      const maxVs = Math.max(0, filteredItems.length - listHeight);
+      let newVs = Math.max(0, Math.min(maxVs, vs + step));
+      if (t < newVs) newVs = t;
+      else if (t >= newVs + listHeight) newVs = t - listHeight + 1;
+      if (
+        newVs > 0 &&
+        filteredItems[newVs - 1]?.type === "header" &&
+        t <= newVs - 1 + listHeight - 1
+      )
+        newVs--;
+      return Math.max(0, newVs);
+    });
+  }
+
   useInput((input, key) => {
     if (mode !== "list") return;
 
@@ -645,6 +675,14 @@ export default function App({ loadFirst, loadRest, initialSortMode, onResume }) 
         navigate(1);
         return;
       }
+      if (key.pageUp) {
+        page(-1);
+        return;
+      }
+      if (key.pageDown) {
+        page(1);
+        return;
+      }
       if (key.return) {
         if (current) {
           onResume(current);
@@ -661,6 +699,8 @@ export default function App({ loadFirst, loadRest, initialSortMode, onResume }) 
 
     if (key.upArrow) navigate(-1);
     else if (key.downArrow) navigate(1);
+    else if (key.pageUp) page(-1);
+    else if (key.pageDown) page(1);
     else if (input === "/") {
       setIsSearching(true);
     } else if ((input === "p" || input === " ") && current) setMode("preview");
