@@ -159,7 +159,7 @@ function PreviewMode({ session, onBack, termWidth, termHeight }) {
   const viewHeight = termHeight - HEADER_HEIGHT - HINT_HEIGHT - 2;
 
   useInput((input, key) => {
-    if (input === "q" || input === "p" || input === " " || key.escape || key.backspace) {
+    if (input === "q" || input === " " || key.escape || key.backspace) {
       onBack();
       return;
     }
@@ -369,7 +369,7 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
   const stats = useMemo(() => computeStats(sessions), [sessions]);
 
   useInput((input, key) => {
-    if (input === "q" || input === "t" || key.escape) onBack();
+    if (input === "q" || input === "u" || key.escape) onBack();
   });
 
   const labelW = 9;
@@ -459,7 +459,7 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
         ),
       ),
     ),
-    h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, "q/esc/t back")),
+    h(Box, { marginTop: 1 }, h(Text, { dimColor: true }, "q/esc/u back")),
   );
 }
 
@@ -703,9 +703,9 @@ export default function App({ loadFirst, loadRest, initialSortMode, onResume }) 
     else if (key.pageDown) page(1);
     else if (input === "/") {
       setIsSearching(true);
-    } else if ((input === "p" || input === " ") && current) setMode("preview");
-    else if (input === "t") setMode("stats");
-    else if ((key.return || input === "r") && current) {
+    } else if (input === " " && current) setMode("preview");
+    else if (input === "u") setMode("stats");
+    else if (key.return && current) {
       onResume(current);
       exit();
     } else if (input === "D" && current) setMode("deleting");
@@ -794,7 +794,7 @@ export default function App({ loadFirst, loadRest, initialSortMode, onResume }) 
     termWidth,
   );
   const navText = pad(
-    " ↑↓ navigate  / search  space/p preview  enter/r resume  t usage  D delete  s sort  q quit",
+    " ↑↓ nav  / search  space preview  enter resume  u usage  s sort  D delete  q quit",
     termWidth,
   );
 
