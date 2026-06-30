@@ -267,18 +267,29 @@ export async function getSessionMessages(filePath) {
   }
 }
 
-// A session is more than its transcript. Claude Code also keeps, keyed by
-// session id: file-history/ (snapshots of files edited during the session),
-// session-env/, and the session's prompt lines in the global history.jsonl.
-// Everything goes to the Trash, so a delete stays reversible.
+// Trash everything Claude Code keys by session id under ~/.claude, plus the
+// session's history.jsonl lines. Reversible (goes to Trash). Skips plans/ and
+// paste-cache/ (shared across sessions) and sessions/<pid>.json (ephemeral).
 export async function deleteSession(filePath) {
   const sessionId = basename(filePath, '.jsonl')
   const candidates = [
     filePath,
     filePath.replace(/\.jsonl$/, ''), // sibling dir (e.g. subagent transcripts)
+    join(CLAUDE_DIR, 'tasks', sessionId),
     join(CLAUDE_DIR, 'file-history', sessionId),
     join(CLAUDE_DIR, 'session-env', sessionId),
+    join(CLAUDE_DIR, 'debug', `${sessionId}.txt`),
   ]
+
+  // telemetry is keyed by a filename prefix, not an exact path
+  const telemetryDir = join(CLAUDE_DIR, 'telemetry')
+  try {
+    const prefix = `1p_failed_events.${sessionId}.`
+    for (const name of await readdir(telemetryDir)) {
+      if (name.startsWith(prefix)) candidates.push(join(telemetryDir, name))
+    }
+  } catch {}
+
   const toTrash = []
   for (const p of candidates) {
     try {
