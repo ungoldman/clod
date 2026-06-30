@@ -43,7 +43,7 @@ node src/index.js
 |-----|--------|
 | `↑` / `↓` | Navigate list |
 | `enter` / `r` | Resume selected session |
-| `p` / `space` | Preview conversation |
+| `space` / `p` | Preview conversation |
 | `t` | Usage dashboard (token counts) |
 | `/` | Search titles (fuzzy) and message contents |
 | `D` | Delete (moves to Trash; includes tasks, file-history, session-env, debug/telemetry, and history.jsonl prompt lines) |
