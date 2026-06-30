@@ -4,6 +4,8 @@ Terminal UI for Claude sessions. Browse, search, preview, delete, and resume any
 
 Like `claude -r` but better.
 
+![clod session list](images/demo.png)
+
 ## Install
 
 Not published to npm yet. Install from a clone:
@@ -63,6 +65,8 @@ throughput-per-day sparkline, a per-model breakdown, and top projects by
 throughput. The cache-inclusive grand total is shown alongside the headline so
 you can see how much of the raw count is cache re-reads. All figures are real
 recorded token counts, no estimation.
+
+![clod usage dashboard](images/demo-dashboard.png)
 
 Bottom bar: last user message from the selected session.
 
