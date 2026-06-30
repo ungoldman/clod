@@ -159,7 +159,7 @@ function PreviewMode({ session, onBack, termWidth, termHeight }) {
   const viewHeight = termHeight - HEADER_HEIGHT - HINT_HEIGHT - 2;
 
   useInput((input, key) => {
-    if (input === "q" || key.escape || key.backspace) {
+    if (input === "q" || input === "p" || input === " " || key.escape || key.backspace) {
       onBack();
       return;
     }
@@ -754,7 +754,7 @@ export default function App({ loadFirst, loadRest, initialSortMode, onResume }) 
     termWidth,
   );
   const navText = pad(
-    " ↑↓ navigate  / search  p preview  enter/r resume  t usage  D delete  s sort  q quit",
+    " ↑↓ navigate  / search  space/p preview  enter/r resume  t usage  D delete  s sort  q quit",
     termWidth,
   );
 
