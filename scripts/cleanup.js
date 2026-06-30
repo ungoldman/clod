@@ -6,8 +6,8 @@
 //
 // Dry-run by default (prints the plan). Pass --apply to actually trash.
 //
-//   node scripts/cleanup.mjs          # show what would be removed
-//   node scripts/cleanup.mjs --apply  # do it
+//   node scripts/cleanup.js          # show what would be removed
+//   node scripts/cleanup.js --apply  # do it
 //
 // Not wired into the TUI on purpose: clod's per-session delete already covers
 // these going forward, so this only clears backlog from deletions made outside
