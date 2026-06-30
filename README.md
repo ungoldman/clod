@@ -9,7 +9,7 @@ Like `claude -r` but better.
 Not published to npm yet. Install from a clone:
 
 ```
-git clone <repo-url> clod
+git clone git@github.com:ungoldman/clod.git
 cd clod
 pnpm install
 pnpm link --global

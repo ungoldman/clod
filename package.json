@@ -1,7 +1,11 @@
 {
   "name": "clod",
   "version": "0.1.0",
-  "description": "Interactive browser for Claude Code sessions",
+  "private": true,
+  "description": "Terminal UI for browsing, searching, and resuming Claude Code sessions",
+  "license": "ISC",
+  "author": "Nate Goldman",
+  "repository": "github:ungoldman/clod",
   "type": "module",
   "bin": {
     "clod": "./src/index.js"
