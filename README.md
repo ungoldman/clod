@@ -42,10 +42,10 @@ node src/index.js
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Navigate list |
-| `enter` / `r` | Resume selected session |
-| `space` / `p` | Preview conversation |
-| `t` | Usage dashboard (token counts) |
 | `/` | Search titles (fuzzy) and message contents |
+| `space` / `p` | Preview conversation |
+| `enter` / `r` | Resume selected session |
+| `t` | Usage dashboard (token counts) |
 | `D` | Delete (moves to Trash; includes tasks, file-history, session-env, debug/telemetry, and history.jsonl prompt lines) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
 | `q` / `esc` | Quit |
