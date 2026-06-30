@@ -2,7 +2,7 @@
   "name": "clod",
   "version": "0.1.0",
   "private": true,
-  "description": "Terminal UI for browsing, searching, and resuming Claude Code sessions",
+  "description": "Terminal UI for managing Claude sessions.",
   "license": "ISC",
   "author": "Nate Goldman",
   "repository": "github:ungoldman/clod",

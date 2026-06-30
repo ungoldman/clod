@@ -1,6 +1,6 @@
 # clod
 
-Terminal UI for Claude sessions. Browse, search, preview, delete, and resume any session.
+Terminal UI for managing Claude sessions. Browse, search, preview, delete, and resume any session.
 
 Like `claude -r` but better.
 
@@ -29,7 +29,15 @@ Or skip the link step and run it in place from the clone:
 node src/index.js
 ```
 
-## Keys
+### Requirements
+
+- Node 22+
+- pnpm
+- Claude Code CLI (`claude`) on PATH for resume
+
+## Usage
+
+### Keys
 
 | Key | Action |
 |-----|--------|
@@ -42,11 +50,7 @@ node src/index.js
 | `s` | Cycle sort: recent → lexicographic → by directory |
 | `q` / `esc` | Quit |
 
-## How it works
-
-Claude Code stores all session files in `~/.claude/projects/`, regardless of which directory the session was started in. clod reads from there directly. No home directory scanning.
-
-## What it shows
+### What it shows
 
 Each row: session title · branch · project path · tokens used · context window · time since last activity
 
@@ -57,7 +61,9 @@ input context size of the session's most recent turn.
 
 Times within today are relative (`now`, `5m`, `3h`); older sessions show a date.
 
-## Usage dashboard
+Bottom bar: last user message from the selected session.
+
+### Dashboard
 
 Press `t` for an aggregate view across all sessions: total throughput, a token
 breakdown by type (input / output / cache write / cache read), a 30-day
@@ -68,11 +74,13 @@ recorded token counts, no estimation.
 
 ![clod usage dashboard](images/demo-dashboard.png)
 
-Bottom bar: last user message from the selected session.
+### How it works
 
-## Maintenance
+Claude Code stores all session files in `~/.claude/projects/`, regardless of which directory the session was started in. clod reads from there directly. No home directory scanning.
 
-`scripts/cleanup.mjs` trashes orphaned session artifacts under `~/.claude`
+### Maintenance
+
+`scripts/cleanup.js` trashes orphaned session artifacts under `~/.claude`
 (file-history, session-env, tasks, telemetry, and stale `history.jsonl` lines
 for sessions with no transcript left). Dry-run by default; `--apply` to act.
 Per-session delete already covers these, so this is only for backlog from
@@ -80,12 +88,6 @@ deletions made outside clod. Don't `--apply` mid-session — a just-started
 session looks orphaned until its transcript flushes.
 
 ```
-node scripts/cleanup.mjs          # preview
-node scripts/cleanup.mjs --apply  # trash them
+node scripts/cleanup.js          # preview
+node scripts/cleanup.js --apply  # trash them
 ```
-
-## Requirements
-
-- Node 22+
-- pnpm
-- Claude Code CLI (`claude`) on PATH for resume
