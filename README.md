@@ -44,11 +44,11 @@ node src/index.js
 | `↑` / `↓` | Navigate list |
 | `PgUp` / `PgDn` | Jump up/down a page |
 | `/` | Search titles (fuzzy) and message contents |
-| `space` / `p` | Preview conversation |
-| `enter` / `r` | Resume selected session |
-| `t` | Usage dashboard (token counts) |
-| `D` | Delete (moves to Trash; includes tasks, file-history, session-env, debug/telemetry, and history.jsonl prompt lines) |
+| `space` | Preview conversation |
+| `enter` | Resume selected session |
+| `u` | Usage dashboard (token counts) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
+| `D` | Delete (moves to Trash; includes tasks, file-history, session-env, debug/telemetry, and history.jsonl prompt lines) |
 | `q` / `esc` | Quit |
 
 ### What it shows
@@ -66,7 +66,7 @@ Bottom bar: last user message from the selected session.
 
 ### Dashboard
 
-Press `t` for an aggregate view across all sessions: total throughput, a token
+Press `u` for an aggregate view across all sessions: total throughput, a token
 breakdown by type (input / output / cache write / cache read), a 30-day
 throughput-per-day sparkline, a per-model breakdown, and top projects by
 throughput. The cache-inclusive grand total is shown alongside the headline so
