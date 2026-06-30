@@ -7,6 +7,7 @@ import {
   shortPath,
   fmtTokens,
   throughputOf,
+  MONTHS,
 } from "./sessions.js";
 import { saveConfig } from "./config.js";
 
@@ -299,7 +300,6 @@ function DeleteConfirm({
 // ─── Usage dashboard ────────────────────────────────────────────────────────
 
 const SPARK = " ▁▂▃▄▅▆▇█";
-const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function bar(value, max, width) {
   const n = max > 0 ? Math.round((value / max) * width) : 0;
@@ -333,8 +333,7 @@ function computeStats(sessions) {
       const m = (byModel[k] ??= { throughput: 0 });
       m.throughput += throughputOf(s.models[k]);
     }
-    const p = byProject.get(s.cwd) ?? { cwd: s.cwd, sessions: 0, throughput: 0 };
-    p.sessions++;
+    const p = byProject.get(s.cwd) ?? { cwd: s.cwd, throughput: 0 };
     p.throughput += s.throughput || 0;
     byProject.set(s.cwd, p);
 
@@ -392,7 +391,7 @@ function StatsView({ sessions, onBack, termWidth, termHeight }) {
   const projLabelW = Math.min(34, Math.max(12, termWidth - barW - 16));
 
   const spark = sparkline(stats.days.map((d) => d.tokens));
-  const sparkStart = `${SHORT_MONTHS[stats.days[0].date.getMonth()]} ${stats.days[0].date.getDate()}`;
+  const sparkStart = `${MONTHS[stats.days[0].date.getMonth()]} ${stats.days[0].date.getDate()}`;
   const sparkEnd = "today";
 
   const section = (label) =>
