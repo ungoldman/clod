@@ -16,7 +16,7 @@ Not published to npm yet. Install from a clone:
 git clone git@github.com:ungoldman/clod.git
 cd clod
 pnpm install
-pnpm link --global
+pnpm link --global .
 ```
 
 This puts `clod` on your PATH, so you can run it from anywhere:
