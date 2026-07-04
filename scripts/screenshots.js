@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const ENTRY = join(ROOT, 'src', 'index.js')
+const ENTRY = join(ROOT, 'src', 'index.ts') // run via node type-stripping (see shoot())
 const IMAGES = join(ROOT, 'images')
 const DEMO_HOME = '/tmp/clod-demo'
 const SESSION = 'clodshot'
@@ -109,7 +109,7 @@ function normalize(frame) {
 
 async function shoot(name, keys) {
   sh(`tmux kill-session -t ${SESSION} 2>/dev/null || true`)
-  sh(`tmux new-session -d -s ${SESSION} -x ${COLS} -y ${ROWS} "env HOME=${DEMO_HOME} node ${ENTRY}"`)
+  sh(`tmux new-session -d -s ${SESSION} -x ${COLS} -y ${ROWS} -c ${ROOT} "env HOME=${DEMO_HOME} node ${ENTRY}"`)
   await sleep(2500)
   if (keys) { sh(`tmux send-keys -t ${SESSION} ${JSON.stringify(keys)}`); await sleep(1200) }
   const frame = sh(`tmux capture-pane -t ${SESSION} -e -p`).toString()
