@@ -1,6 +1,20 @@
+<div align="center">
+
+<img src="./logo.png" width="120" height="120" alt="rock">
+
 # clod
 
 Terminal UI for managing Claude Code sessions.
+
+[![npm][npm-image]][npm-url]
+[![build][build-image]][build-url]
+
+[npm-image]: https://img.shields.io/npm/v/@hype/clod.svg
+[npm-url]: https://www.npmjs.com/package/@hype/clod
+[build-image]: https://github.com/ungoldman/clod/actions/workflows/tests.yml/badge.svg
+[build-url]: https://github.com/ungoldman/clod/actions/workflows/tests.yml
+
+</div>
 
 Browse, search, preview, resume, and delete any session from any directory.
 
@@ -10,8 +24,15 @@ Like `claude -r` but better.
 
 ## Install
 
+**Requirements:**
+
+- Node 22+
+- Claude Code CLI (`claude`) on PATH for resume
+
+Install globally via your node package manager of choice:
+
 ```
-npm install -g @hype/clod
+pnpm i -g @hype/clod
 ```
 
 This puts `clod` on your PATH, so you can run it from anywhere:
@@ -19,11 +40,6 @@ This puts `clod` on your PATH, so you can run it from anywhere:
 ```
 clod
 ```
-
-### Requirements
-
-- Node 22+
-- Claude Code CLI (`claude`) on PATH for resume
 
 ## Usage
 
@@ -107,3 +123,5 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 ## License
 
 [ISC](LICENSE)
+
+Logo is the rock emoji, rendered locally from the system Apple Color Emoji font.
