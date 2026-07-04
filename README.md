@@ -10,14 +10,8 @@ Like `claude -r` but better.
 
 ## Install
 
-Not published to npm yet. Install from a clone:
-
 ```
-git clone git@github.com:ungoldman/clod.git
-cd clod
-pnpm install
-pnpm build
-pnpm link --global .
+npm install -g @hype/clod
 ```
 
 This puts `clod` on your PATH, so you can run it from anywhere:
@@ -26,16 +20,9 @@ This puts `clod` on your PATH, so you can run it from anywhere:
 clod
 ```
 
-Or skip the link step and run it in place from the clone:
-
-```
-pnpm start
-```
-
 ### Requirements
 
 - Node 22+
-- pnpm
 - Claude Code CLI (`claude`) on PATH for resume
 
 ## Usage
@@ -112,3 +99,11 @@ Tests use `node:test` and run through Node's type stripping, so no test-runner
 dependency. The parsing, sorting, and stats logic lives in `src/{sessions,list,stats,config}.ts`
 and is held at 100% coverage; the Ink render layer (`src/ui.ts`) is exercised by
 `ink-testing-library` but kept out of the gate.
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+[ISC](LICENSE)
