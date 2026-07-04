@@ -1,4 +1,6 @@
 node_modules/
+dist/
+coverage/
 
 # local user preferences (sort mode, etc.)
 .clod.json
