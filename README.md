@@ -16,6 +16,7 @@ Not published to npm yet. Install from a clone:
 git clone git@github.com:ungoldman/clod.git
 cd clod
 pnpm install
+pnpm build
 pnpm link --global .
 ```
 
@@ -28,7 +29,7 @@ clod
 Or skip the link step and run it in place from the clone:
 
 ```
-node src/index.js
+pnpm start
 ```
 
 ### Requirements
@@ -94,3 +95,20 @@ session looks orphaned until its transcript flushes.
 node scripts/cleanup.js          # preview
 node scripts/cleanup.js --apply  # trash them
 ```
+
+## Development
+
+TypeScript, ESM-only. Source in `src/` compiles to `dist/` with `tsc`.
+
+```
+pnpm dev        # run from source with reload
+pnpm test       # lint, typecheck, build, and run tests
+pnpm coverage   # tests with the 100% coverage gate
+pnpm lint       # biome check
+pnpm format     # biome check --write
+```
+
+Tests use `node:test` and run through Node's type stripping, so no test-runner
+dependency. The parsing, sorting, and stats logic lives in `src/{sessions,list,stats,config}.ts`
+and is held at 100% coverage; the Ink render layer (`src/ui.ts`) is exercised by
+`ink-testing-library` but kept out of the gate.
