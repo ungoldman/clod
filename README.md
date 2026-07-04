@@ -1,6 +1,6 @@
 # clod
 
-Terminal UI for managing Claude sessions.
+Terminal UI for managing Claude Code sessions.
 
 Browse, search, preview, resume, and delete any session from any directory.
 

@@ -1,31 +1,12 @@
 {
   "name": "@hype/clod",
+  "description": "Terminal UI for managing Claude Code sessions.",
   "version": "0.1.0",
-  "private": true,
-  "description": "Terminal UI for managing Claude sessions.",
-  "license": "ISC",
   "author": "Nate Goldman",
-  "repository": "github:ungoldman/clod",
-  "type": "module",
-  "packageManager": "pnpm@11.9.0",
   "bin": {
     "clod": "./dist/index.js"
   },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "prebuild": "rm -rf dist",
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc",
-    "lint": "biome check .",
-    "format": "biome check --write .",
-    "start": "node src/index.ts",
-    "dev": "node --watch src/index.ts",
-    "test": "pnpm lint && pnpm typecheck && pnpm build && node --test test/*.test.ts",
-    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='src/index.ts' --test-coverage-exclude='src/trash.ts' --test-coverage-exclude='src/ui.ts' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.ts",
-    "prepublishOnly": "pnpm build"
-  },
+  "bugs": "https://github.com/ungoldman/clod/issues",
   "dependencies": {
     "ink": "^7.1.0",
     "react": "^19.2.7",
@@ -41,7 +22,38 @@
   "engines": {
     "node": ">=22"
   },
+  "files": [
+    "dist"
+  ],
+  "homepage": "https://github.com/ungoldman/clod",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "cli",
+    "ink",
+    "sessions",
+    "tui"
+  ],
+  "license": "ISC",
+  "packageManager": "pnpm@11.9.0",
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ungoldman/clod.git"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='src/index.ts' --test-coverage-exclude='src/trash.ts' --test-coverage-exclude='src/ui.ts' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.ts",
+    "dev": "node --watch src/index.ts",
+    "format": "biome check --write .",
+    "lint": "biome check .",
+    "prebuild": "rm -rf dist",
+    "prepublishOnly": "pnpm build",
+    "start": "node src/index.ts",
+    "test": "pnpm lint && pnpm typecheck && pnpm build && node --test test/*.test.ts",
+    "typecheck": "tsc"
+  },
+  "type": "module"
 }
