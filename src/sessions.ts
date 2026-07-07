@@ -1,5 +1,5 @@
 import type { Stats } from 'node:fs'
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { appendFile, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { trashPaths } from './trash.ts'
@@ -349,6 +349,18 @@ export async function getSessionMessages(filePath: string): Promise<Message[]> {
   } catch {
     return []
   }
+}
+
+// Rename by appending the records Claude Code's /rename writes; the last one
+// wins on parse. custom-title feeds the resume picker, agent-name the title
+// shown inside a resumed session.
+export async function renameSession(filePath: string, title: string): Promise<void> {
+  const sessionId = basename(filePath, '.jsonl')
+  const records = [
+    { type: 'custom-title', customTitle: title, sessionId },
+    { type: 'agent-name', agentName: title, sessionId }
+  ]
+  await appendFile(filePath, records.map((r) => `${JSON.stringify(r)}\n`).join(''))
 }
 
 // Trash everything Claude Code keys by session id under ~/.claude, plus the

@@ -13,6 +13,7 @@ import {
   loadSessions,
   parseSession,
   relativeTime,
+  renameSession,
   shortPath,
   textBlocks,
   throughputOf
@@ -398,6 +399,34 @@ test('getSessionMessages: text blocks with no text field', async () => {
   assert.deepEqual(await getSessionMessages(file), [
     { role: 'user', text: '', timestamp: undefined }
   ])
+})
+
+test('renameSession: appends custom-title and agent-name records, parseSession picks up', async () => {
+  const { file } = await makeFile([
+    { type: 'custom-title', customTitle: 'old name', sessionId: 'sid' },
+    { type: 'agent-name', agentName: 'old name', sessionId: 'sid' },
+    {
+      type: 'user',
+      message: { role: 'user', content: 'hello' },
+      timestamp: '2026-01-01T00:00:00Z',
+      cwd: '/home/u/proj'
+    }
+  ])
+
+  await renameSession(file, 'new name')
+
+  const lines = (await readFile(file, 'utf8')).trim().split('\n')
+  assert.deepEqual(
+    lines.slice(-2).map((l) => JSON.parse(l)),
+    [
+      { type: 'custom-title', customTitle: 'new name', sessionId: 'sid' },
+      { type: 'agent-name', agentName: 'new name', sessionId: 'sid' }
+    ]
+  )
+
+  const s = await parseSession(file, await stat(file))
+  assert.ok(s)
+  assert.equal(s.title, 'new name')
 })
 
 test('deleteSession: trashes all keyed artifacts and scrubs history', async () => {
