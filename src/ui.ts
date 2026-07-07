@@ -22,6 +22,7 @@ import {
   type Message,
   MONTHS,
   relativeTime,
+  renameSession,
   type Session,
   shortPath
 } from './sessions.ts'
@@ -82,6 +83,50 @@ const SessionRow = memo(function SessionRow({
     h(Text, { dimColor: true }, `  ${timeCol}`)
   )
 })
+
+// ─── Row rename field ────────────────────────────────────────────────────────
+
+function InputText({ value, termWidth }: { value: string; termWidth: number }) {
+  return h(
+    Box,
+    {},
+    h(Text, { backgroundColor: 'grey', color: 'white', bold: true }, pad(`> ${value}█`, termWidth))
+  )
+}
+
+// Immutable value+cursor pair for the rename input
+class InputTextState {
+  readonly value: string
+  readonly cursorPosition: number
+
+  constructor(value: string, cursorPosition: number) {
+    this.value = value
+    this.cursorPosition = cursorPosition
+  }
+
+  static open(title: string): InputTextState {
+    return new InputTextState(title, title.length)
+  }
+
+  get trimmedValue(): string {
+    return this.value.trim()
+  }
+
+  deleteCharBeforeCursor(): InputTextState {
+    const cursorPosition = Math.max(0, this.cursorPosition - 1)
+    return new InputTextState(
+      this.value.slice(0, cursorPosition) + this.value.slice(this.cursorPosition),
+      cursorPosition
+    )
+  }
+
+  insert(text: string): InputTextState {
+    return new InputTextState(
+      this.value.slice(0, this.cursorPosition) + text + this.value.slice(this.cursorPosition),
+      this.cursorPosition + text.length
+    )
+  }
+}
 
 // ─── Directory header ─────────────────────────────────────────────────────────
 
@@ -366,6 +411,7 @@ export interface AppProps {
   initialSortMode?: SortMode
   onResume: (session: Session) => void
   onDelete?: (filePath: string) => Promise<void>
+  onRename?: (filePath: string, title: string) => Promise<void>
 }
 
 export default function App({
@@ -373,7 +419,8 @@ export default function App({
   loadRest,
   initialSortMode,
   onResume,
-  onDelete = deleteSession
+  onDelete = deleteSession,
+  onRename = renameSession
 }: AppProps) {
   const { exit } = useApp()
   const { stdout } = useStdout()
@@ -387,6 +434,7 @@ export default function App({
   const [sortMode, setSortMode] = useState<SortMode>(initialSortMode ?? 'recent')
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
+  const [rename, setRename] = useState<InputTextState | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Paint before any session is parsed: newest batch first, the rest in one later
@@ -465,6 +513,34 @@ export default function App({
   useInput((input, key) => {
     if (mode !== 'list') return
 
+    if (rename !== null) {
+      if (key.escape) {
+        setRename(null)
+        return
+      }
+      if (key.return) {
+        const title = rename.trimmedValue
+        setRename(null)
+        if (current && title && title !== (current.title || 'Untitled')) {
+          // update the row in the same frame the input closes
+          const updateRow = (s: Session) =>
+            s.sessionId === current.sessionId ? { ...s, title } : s
+          setSessions((cur) => cur.map(updateRow))
+          // persist in the background
+          onRename(current.filePath, title)
+        }
+        return
+      }
+      if (key.backspace || key.delete || input === '\x7f') {
+        setRename((r) => r && r.deleteCharBeforeCursor())
+        return
+      }
+      if (input && input !== '\x7f' && !key.ctrl && !key.meta) {
+        setRename((r) => r && r.insert(input))
+      }
+      return
+    }
+
     if (isSearching) {
       if (key.escape) {
         setIsSearching(false)
@@ -521,6 +597,8 @@ export default function App({
     else if (key.return && current) {
       onResume(current)
       exit()
+    } else if (input === 'r' && current) {
+      setRename(InputTextState.open(current.title || 'Untitled'))
     } else if (input === 'D' && current) setMode('deleting')
     else if (input === 's') {
       const next = nextSortMode(sortMode)
@@ -601,7 +679,9 @@ export default function App({
     termWidth
   )
   const navText = pad(
-    ' ↑↓ nav  / search  space preview  enter resume  u usage  s sort  D delete  q quit',
+    rename !== null
+      ? ' enter confirm  esc cancel'
+      : ' ↑↓ nav  / search  space preview  enter resume  r rename  u usage  s sort  D delete  q quit',
     termWidth
   )
 
@@ -628,16 +708,18 @@ export default function App({
       ...viewSlice.map((item) =>
         item.type === 'header'
           ? h(DirectoryHeader, { key: item.cwd, cwd: item.cwd })
-          : h(SessionRow, {
-              key: item.session.sessionId,
-              session: item.session,
-              selected: item.session.sessionId === selectedId,
-              termWidth,
-              sortMode,
-              timeWidth,
-              usedWidth,
-              ctxWidth
-            })
+          : item.session.sessionId === selectedId && rename !== null
+            ? h(InputText, { key: item.session.sessionId, value: rename.value, termWidth })
+            : h(SessionRow, {
+                key: item.session.sessionId,
+                session: item.session,
+                selected: item.session.sessionId === selectedId,
+                termWidth,
+                sortMode,
+                timeWidth,
+                usedWidth,
+                ctxWidth
+              })
       )
     ),
     h(

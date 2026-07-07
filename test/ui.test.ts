@@ -34,6 +34,7 @@ async function transcript(lines: object[]): Promise<string> {
 function renderApp(sessions: Session[], overrides: Partial<AppProps> = {}) {
   const resumed: Session[] = []
   const deleted: string[] = []
+  const renamed: [string, string][] = []
   const props: AppProps = {
     loadFirst: () => Promise.resolve(sessions),
     loadRest: null,
@@ -41,9 +42,12 @@ function renderApp(sessions: Session[], overrides: Partial<AppProps> = {}) {
     onDelete: async (fp) => {
       deleted.push(fp)
     },
+    onRename: async (fp, title) => {
+      renamed.push([fp, title])
+    },
     ...overrides
   }
-  return { ...render(h(App, props)), resumed, deleted }
+  return { ...render(h(App, props)), resumed, deleted, renamed }
 }
 
 test('renders a loading frame, then the session list with a snippet', async () => {
@@ -263,6 +267,76 @@ test('delete: cancel keeps the session, confirm removes it', async () => {
   await delay(20)
   assert.equal(deleted.length, 1)
   assert.doesNotMatch(lastFrame() ?? '', /delete me/)
+  unmount()
+})
+
+test('rename: r opens input prefilled with the title, enter confirms', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'old', filePath: '/tmp/s1.jsonl' })
+  const { lastFrame, stdin, renamed, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  assert.match(lastFrame() ?? '', /> old█/)
+  assert.match(lastFrame() ?? '', /enter confirm {2}esc cancel/)
+  for (const c of 'er') stdin.write(c)
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.deepEqual(renamed, [['/tmp/s1.jsonl', 'older']])
+  assert.match(lastFrame() ?? '', /older/)
+  assert.doesNotMatch(lastFrame() ?? '', /█/)
+  unmount()
+})
+
+test('rename: row shows the new title before the write resolves (no flicker)', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'old' })
+  const { lastFrame, stdin, unmount } = renderApp([s1], {
+    onRename: () => new Promise(() => {}) // never resolves
+  })
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  for (const c of 'er') stdin.write(c)
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.match(lastFrame() ?? '', /older/)
+  unmount()
+})
+
+test('rename: esc discards, backspace edits, null title prefills Untitled', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: null })
+  const { lastFrame, stdin, renamed, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  assert.match(lastFrame() ?? '', /> Untitled█/)
+  stdin.write(KEY.backspace)
+  stdin.write('\x01') // ctrl char: ignored as input
+  await delay(20)
+  assert.match(lastFrame() ?? '', /> Untitle█/)
+  stdin.write(KEY.esc)
+  await delay(20)
+  assert.equal(renamed.length, 0)
+  assert.match(lastFrame() ?? '', /Untitled/)
+  unmount()
+})
+
+test('rename: empty and unchanged values confirm without renaming', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'same' })
+  const { stdin, renamed, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  stdin.write(KEY.enter) // unchanged -> no write
+  await delay(20)
+  stdin.write('r')
+  await delay(20)
+  for (let i = 0; i < 4; i++) stdin.write(KEY.backspace)
+  await delay(20)
+  stdin.write(KEY.enter) // empty -> no write
+  await delay(20)
+  assert.equal(renamed.length, 0)
   unmount()
 })
 
