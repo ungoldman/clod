@@ -139,6 +139,22 @@ class InputTextState {
     return new InputTextState(this.value, Math.min(this.value.length, this.cursorPosition + 1))
   }
 
+  // Start of the word left of the cursor: skip spaces, then the word itself.
+  moveCursorToPrevWord(): InputTextState {
+    let i = this.cursorPosition
+    while (i > 0 && this.value[i - 1] === ' ') i--
+    while (i > 0 && this.value[i - 1] !== ' ') i--
+    return new InputTextState(this.value, i)
+  }
+
+  // Start of the word right of the cursor: skip the rest of this word, then spaces.
+  moveCursorToNextWord(): InputTextState {
+    let i = this.cursorPosition
+    while (i < this.value.length && this.value[i] !== ' ') i++
+    while (i < this.value.length && this.value[i] === ' ') i++
+    return new InputTextState(this.value, i)
+  }
+
   deleteCharBeforeCursor(): InputTextState {
     const cursorPosition = Math.max(0, this.cursorPosition - 1)
     return new InputTextState(
@@ -558,12 +574,14 @@ export default function App({
         }
         return
       }
-      if (key.leftArrow) {
-        setRename((r) => r && r.moveCursorLeft())
+      // alt+arrows arrive as meta+arrow (xterm-style CSI) or as ESC b / ESC f
+      // (macOS terminals), which ink reports as meta plus a plain b / f.
+      if (key.leftArrow || (key.meta && input === 'b')) {
+        setRename((r) => r && (key.meta ? r.moveCursorToPrevWord() : r.moveCursorLeft()))
         return
       }
-      if (key.rightArrow) {
-        setRename((r) => r && r.moveCursorRight())
+      if (key.rightArrow || (key.meta && input === 'f')) {
+        setRename((r) => r && (key.meta ? r.moveCursorToNextWord() : r.moveCursorRight()))
         return
       }
       if (key.backspace || key.delete || input === '\x7f') {

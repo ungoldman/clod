@@ -52,7 +52,7 @@ clod
 | `/` | Search titles (fuzzy) and message contents |
 | `space` | Preview conversation |
 | `enter` | Resume selected session |
-| `r` | Rename selected session (enter confirms, esc cancels; `←`/`→` move the cursor) |
+| `r` | Rename selected session (enter confirms, esc cancels; `←`/`→` move the cursor, `alt+←`/`→` jump by word) |
 | `u` | Usage dashboard (token counts) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
 | `D` | Delete (moves to Trash; includes tasks, file-history, session-env, debug/telemetry, and history.jsonl prompt lines) |

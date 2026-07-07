@@ -22,7 +22,11 @@ const KEY = {
   enter: '\r',
   esc: '\x1B',
   backspace: '\x7F',
-  space: ' '
+  space: ' ',
+  altLeft: '\x1B[1;3D', // xterm-style modified arrow
+  altRight: '\x1B[1;3C',
+  optLeft: '\x1Bb', // macOS terminals send ESC b / ESC f
+  optRight: '\x1Bf'
 }
 
 // A frame is styled when the host terminal supports color (the cursor's
@@ -361,6 +365,36 @@ test('rename: arrows move the cursor, typing and backspace act at it', async () 
   for (let i = 0; i < 12; i++) stdin.write(KEY.right) // past the end: clamped
   await delay(20)
   assert.match(plain(lastFrame()), /> Yold naXe█/)
+  unmount()
+})
+
+test('rename: alt+arrows jump the cursor to word starts, in both encodings', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'one two' })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  stdin.write(KEY.altLeft) // start of "two"
+  await delay(20)
+  stdin.write('X')
+  await delay(20)
+  assert.match(plain(lastFrame()), /> one Xtwo/)
+  stdin.write(KEY.optLeft) // start of "Xtwo"
+  stdin.write(KEY.optLeft) // start of "one"
+  stdin.write(KEY.optLeft) // already at the first word: clamped
+  await delay(20)
+  stdin.write('Y')
+  await delay(20)
+  assert.match(plain(lastFrame()), /> Yone Xtwo/)
+  stdin.write(KEY.optRight) // start of "Xtwo"
+  await delay(20)
+  stdin.write('Z')
+  await delay(20)
+  assert.match(plain(lastFrame()), /> Yone ZXtwo/)
+  stdin.write(KEY.altRight) // no next word: lands at the end
+  stdin.write(KEY.altRight) // clamped there
+  await delay(20)
+  assert.match(plain(lastFrame()), /> Yone ZXtwo█/)
   unmount()
 })
 
