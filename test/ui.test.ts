@@ -15,12 +15,24 @@ const delay = (ms = 60) => new Promise((r) => setTimeout(r, ms))
 const KEY = {
   down: '\x1B[B',
   up: '\x1B[A',
+  left: '\x1B[D',
+  right: '\x1B[C',
   pageDown: '\x1B[6~',
   pageUp: '\x1B[5~',
   enter: '\r',
   esc: '\x1B',
   backspace: '\x7F',
   space: ' '
+}
+
+// A frame is styled when the host terminal supports color (the cursor's
+// inverse-video codes then split the row text); strip the ANSI codes so
+// text assertions see the same frame everywhere.
+function plain(frame: string | undefined): string {
+  return (frame ?? '')
+    .split('\x1B')
+    .map((part, i) => (i === 0 ? part : part.replace(/^\[[0-9;]*m/, '')))
+    .join('')
 }
 
 // A real transcript so preview/delete panes can load messages.
@@ -319,6 +331,36 @@ test('rename: esc discards, backspace edits, null title prefills Untitled', asyn
   await delay(20)
   assert.equal(renamed.length, 0)
   assert.match(lastFrame() ?? '', /Untitled/)
+  unmount()
+})
+
+// Mid-line cursor positions are asserted through where insertions and
+// deletions land, not through the cursor cell itself.
+test('rename: arrows move the cursor, typing and backspace act at it', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'old name' })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  stdin.write(KEY.left)
+  stdin.write(KEY.left)
+  await delay(20)
+  stdin.write('X') // insert at the cursor, not append
+  await delay(20)
+  assert.match(plain(lastFrame()), /> old naXme/)
+  stdin.write(KEY.right) // step over the m
+  await delay(20)
+  stdin.write(KEY.backspace) // delete at the cursor, not the end
+  await delay(20)
+  assert.match(plain(lastFrame()), /> old naXe/)
+  for (let i = 0; i < 10; i++) stdin.write(KEY.left) // past the start: clamped
+  await delay(20)
+  stdin.write('Y')
+  await delay(20)
+  assert.match(plain(lastFrame()), /> Yold naXe/)
+  for (let i = 0; i < 12; i++) stdin.write(KEY.right) // past the end: clamped
+  await delay(20)
+  assert.match(plain(lastFrame()), /> Yold naXe█/)
   unmount()
 })
 

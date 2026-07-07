@@ -86,11 +86,30 @@ const SessionRow = memo(function SessionRow({
 
 // ─── Row rename field ────────────────────────────────────────────────────────
 
-function InputText({ value, termWidth }: { value: string; termWidth: number }) {
+function InputText({
+  value,
+  cursor,
+  termWidth
+}: {
+  value: string
+  cursor: number
+  termWidth: number
+}) {
+  const style = { backgroundColor: 'grey', color: 'white', bold: true }
+
+  // Past the end there is no character to sit on: show a block instead
+  // (ink trims trailing whitespace, so an inverse space would be invisible).
+  if (cursor >= value.length) {
+    return h(Box, {}, h(Text, style, pad(`> ${value}█`, termWidth)))
+  }
+
+  // The cursor is the inverse-video cell over the character it sits on.
   return h(
     Box,
     {},
-    h(Text, { backgroundColor: 'grey', color: 'white', bold: true }, pad(`> ${value}█`, termWidth))
+    h(Text, style, `> ${value.slice(0, cursor)}`),
+    h(Text, { ...style, inverse: true }, value[cursor]),
+    h(Text, style, pad(value.slice(cursor + 1), Math.max(0, termWidth - cursor - 3)))
   )
 }
 
@@ -110,6 +129,14 @@ class InputTextState {
 
   get trimmedValue(): string {
     return this.value.trim()
+  }
+
+  moveCursorLeft(): InputTextState {
+    return new InputTextState(this.value, Math.max(0, this.cursorPosition - 1))
+  }
+
+  moveCursorRight(): InputTextState {
+    return new InputTextState(this.value, Math.min(this.value.length, this.cursorPosition + 1))
   }
 
   deleteCharBeforeCursor(): InputTextState {
@@ -531,6 +558,14 @@ export default function App({
         }
         return
       }
+      if (key.leftArrow) {
+        setRename((r) => r && r.moveCursorLeft())
+        return
+      }
+      if (key.rightArrow) {
+        setRename((r) => r && r.moveCursorRight())
+        return
+      }
       if (key.backspace || key.delete || input === '\x7f') {
         setRename((r) => r && r.deleteCharBeforeCursor())
         return
@@ -709,7 +744,12 @@ export default function App({
         item.type === 'header'
           ? h(DirectoryHeader, { key: item.cwd, cwd: item.cwd })
           : item.session.sessionId === selectedId && rename !== null
-            ? h(InputText, { key: item.session.sessionId, value: rename.value, termWidth })
+            ? h(InputText, {
+                key: item.session.sessionId,
+                value: rename.value,
+                cursor: rename.cursorPosition,
+                termWidth
+              })
             : h(SessionRow, {
                 key: item.session.sessionId,
                 session: item.session,
