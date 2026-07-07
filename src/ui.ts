@@ -113,61 +113,46 @@ function InputText({
   )
 }
 
-// Immutable value+cursor pair for the rename input
-class InputTextState {
-  readonly value: string
-  readonly cursorPosition: number
+// The rename input's value+cursor pair. Edits return a new state.
+type RenameState = { value: string; cursor: number }
 
-  constructor(value: string, cursorPosition: number) {
-    this.value = value
-    this.cursorPosition = cursorPosition
-  }
+function openRename(title: string): RenameState {
+  return { value: title, cursor: title.length }
+}
 
-  static open(title: string): InputTextState {
-    return new InputTextState(title, title.length)
-  }
+function cursorLeft({ value, cursor }: RenameState): RenameState {
+  return { value, cursor: Math.max(0, cursor - 1) }
+}
 
-  get trimmedValue(): string {
-    return this.value.trim()
-  }
+function cursorRight({ value, cursor }: RenameState): RenameState {
+  return { value, cursor: Math.min(value.length, cursor + 1) }
+}
 
-  moveCursorLeft(): InputTextState {
-    return new InputTextState(this.value, Math.max(0, this.cursorPosition - 1))
-  }
+// Start of the word left of the cursor: skip spaces, then the word itself.
+function cursorPrevWord({ value, cursor }: RenameState): RenameState {
+  let i = cursor
+  while (i > 0 && value[i - 1] === ' ') i--
+  while (i > 0 && value[i - 1] !== ' ') i--
+  return { value, cursor: i }
+}
 
-  moveCursorRight(): InputTextState {
-    return new InputTextState(this.value, Math.min(this.value.length, this.cursorPosition + 1))
-  }
+// Start of the word right of the cursor: skip the rest of this word, then spaces.
+function cursorNextWord({ value, cursor }: RenameState): RenameState {
+  let i = cursor
+  while (i < value.length && value[i] !== ' ') i++
+  while (i < value.length && value[i] === ' ') i++
+  return { value, cursor: i }
+}
 
-  // Start of the word left of the cursor: skip spaces, then the word itself.
-  moveCursorToPrevWord(): InputTextState {
-    let i = this.cursorPosition
-    while (i > 0 && this.value[i - 1] === ' ') i--
-    while (i > 0 && this.value[i - 1] !== ' ') i--
-    return new InputTextState(this.value, i)
-  }
+function backspace({ value, cursor }: RenameState): RenameState {
+  const c = Math.max(0, cursor - 1)
+  return { value: value.slice(0, c) + value.slice(cursor), cursor: c }
+}
 
-  // Start of the word right of the cursor: skip the rest of this word, then spaces.
-  moveCursorToNextWord(): InputTextState {
-    let i = this.cursorPosition
-    while (i < this.value.length && this.value[i] !== ' ') i++
-    while (i < this.value.length && this.value[i] === ' ') i++
-    return new InputTextState(this.value, i)
-  }
-
-  deleteCharBeforeCursor(): InputTextState {
-    const cursorPosition = Math.max(0, this.cursorPosition - 1)
-    return new InputTextState(
-      this.value.slice(0, cursorPosition) + this.value.slice(this.cursorPosition),
-      cursorPosition
-    )
-  }
-
-  insert(text: string): InputTextState {
-    return new InputTextState(
-      this.value.slice(0, this.cursorPosition) + text + this.value.slice(this.cursorPosition),
-      this.cursorPosition + text.length
-    )
+function insert({ value, cursor }: RenameState, text: string): RenameState {
+  return {
+    value: value.slice(0, cursor) + text + value.slice(cursor),
+    cursor: cursor + text.length
   }
 }
 
@@ -477,7 +462,7 @@ export default function App({
   const [sortMode, setSortMode] = useState<SortMode>(initialSortMode ?? 'recent')
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
-  const [rename, setRename] = useState<InputTextState | null>(null)
+  const [rename, setRename] = useState<RenameState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -565,7 +550,7 @@ export default function App({
         return
       }
       if (key.return) {
-        const title = rename.trimmedValue
+        const title = rename.value.trim()
         setRename(null)
         if (current && title && title !== (current.title || 'Untitled')) {
           // update the row in the same frame the input closes
@@ -585,19 +570,19 @@ export default function App({
       // alt+arrows arrive as meta+arrow (xterm-style CSI) or as ESC b / ESC f
       // (macOS terminals), which ink reports as meta plus a plain b / f.
       if (key.leftArrow || (key.meta && input === 'b')) {
-        setRename((r) => r && (key.meta ? r.moveCursorToPrevWord() : r.moveCursorLeft()))
+        setRename((r) => r && (key.meta ? cursorPrevWord(r) : cursorLeft(r)))
         return
       }
       if (key.rightArrow || (key.meta && input === 'f')) {
-        setRename((r) => r && (key.meta ? r.moveCursorToNextWord() : r.moveCursorRight()))
+        setRename((r) => r && (key.meta ? cursorNextWord(r) : cursorRight(r)))
         return
       }
       if (key.backspace || key.delete || input === '\x7f') {
-        setRename((r) => r && r.deleteCharBeforeCursor())
+        setRename((r) => r && backspace(r))
         return
       }
       if (input && input !== '\x7f' && !key.ctrl && !key.meta) {
-        setRename((r) => r && r.insert(input))
+        setRename((r) => r && insert(r, input))
       }
       return
     }
@@ -659,7 +644,7 @@ export default function App({
       onResume(current)
       exit()
     } else if (input === 'r' && current) {
-      setRename(InputTextState.open(current.title || 'Untitled'))
+      setRename(openRename(current.title || 'Untitled'))
     } else if (input === 'D' && current) setMode('deleting')
     else if (input === 's') {
       const next = nextSortMode(sortMode)
@@ -777,7 +762,7 @@ export default function App({
             ? h(InputText, {
                 key: item.session.sessionId,
                 value: rename.value,
-                cursor: rename.cursorPosition,
+                cursor: rename.cursor,
                 termWidth
               })
             : h(SessionRow, {
