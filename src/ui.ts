@@ -478,6 +478,7 @@ export default function App({
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [rename, setRename] = useState<InputTextState | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Paint before any session is parsed: newest batch first, the rest in one later
@@ -555,6 +556,8 @@ export default function App({
 
   useInput((input, key) => {
     if (mode !== 'list') return
+    // any keypress dismisses a lingering error
+    if (error) setError(null)
 
     if (rename !== null) {
       if (key.escape) {
@@ -569,8 +572,13 @@ export default function App({
           const updateRow = (s: Session) =>
             s.sessionId === current.sessionId ? { ...s, title } : s
           setSessions((cur) => cur.map(updateRow))
-          // persist in the background
-          onRename(current.filePath, title)
+          // persist in the background; revert the row and warn if the write fails
+          onRename(current.filePath, title).catch((err) => {
+            const revertRow = (s: Session) =>
+              s.sessionId === current.sessionId ? { ...s, title: current.title } : s
+            setSessions((cur) => cur.map(revertRow))
+            setError(`could not save rename: ${err.message}`)
+          })
         }
         return
       }
@@ -750,7 +758,11 @@ export default function App({
         borderTop: false,
         borderColor: 'gray'
       },
-      h(Text, { backgroundColor: 'black', color: 'white', bold: true }, headerText)
+      h(
+        Text,
+        { backgroundColor: error ? 'red' : 'black', color: 'white', bold: true },
+        error ? pad(` ${error}`, termWidth) : headerText
+      )
     ),
     h(
       Box,

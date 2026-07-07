@@ -320,6 +320,24 @@ test('rename: row shows the new title before the write resolves (no flicker)', a
   unmount()
 })
 
+test('rename: failed write reverts the row and surfaces an error', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'old' })
+  const { lastFrame, stdin, unmount } = renderApp([s1], {
+    onRename: () => Promise.reject(new Error('write failed'))
+  })
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  for (const c of 'er') stdin.write(c)
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.match(lastFrame() ?? '', /old/)
+  assert.doesNotMatch(lastFrame() ?? '', /older/)
+  assert.match(lastFrame() ?? '', /could not save rename: write failed/)
+  unmount()
+})
+
 test('rename: esc discards, backspace edits, null title prefills Untitled', async () => {
   const s1 = mkSession({ sessionId: 's1', title: null })
   const { lastFrame, stdin, renamed, unmount } = renderApp([s1])
