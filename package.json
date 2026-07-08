@@ -1,7 +1,7 @@
 {
   "name": "@hype/clod",
   "description": "Terminal UI for managing Claude Code sessions.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Nate Goldman <ungoldman@gmail.com>",
   "bin": {
     "clod": "./dist/index.js"
