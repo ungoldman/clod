@@ -43,6 +43,13 @@ clod
 
 ## Usage
 
+`clod` takes no arguments. Running it launches the session browser. Two flags print and exit:
+
+| Flag | Action |
+|------|--------|
+| `-h`, `--help` | Print usage |
+| `-v`, `--version` | Print version |
+
 ### Keys
 
 | Key | Action |
