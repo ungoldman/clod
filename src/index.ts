@@ -1,6 +1,19 @@
 #!/usr/bin/env node
+import { helpText, parseArgs, readPackage } from './cli.ts'
 import { loadConfig } from './config.ts'
 import { listSessionFiles, parseSessions, type Session } from './sessions.ts'
+
+const action = parseArgs(process.argv.slice(2))
+
+if (action === 'help') {
+  console.log(helpText(await readPackage()))
+  process.exit(0)
+}
+
+if (action === 'version') {
+  console.log((await readPackage()).version)
+  process.exit(0)
+}
 
 // Parse enough newest sessions to fill a viewport; stream the rest in later.
 const FIRST_BATCH = 40
