@@ -46,7 +46,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='src/index.ts' --test-coverage-exclude='src/trash.ts' --test-coverage-exclude='src/ui.ts' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.ts",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='src/index.ts' --test-coverage-exclude='src/trash.ts' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.ts",
     "dev": "node --watch src/index.ts",
     "format": "biome check --write .",
     "lint": "biome check .",
