@@ -12,6 +12,7 @@ import {
   findAdjacentSessionId,
   nextSortMode,
   pad,
+  termSize,
   truncate,
   usedStr
 } from './list.ts'
@@ -113,61 +114,45 @@ function InputText({
   )
 }
 
-// Immutable value+cursor pair for the rename input
-class InputTextState {
-  readonly value: string
-  readonly cursorPosition: number
+type RenameState = { value: string; cursor: number }
 
-  constructor(value: string, cursorPosition: number) {
-    this.value = value
-    this.cursorPosition = cursorPosition
-  }
+function openRename(title: string): RenameState {
+  return { value: title, cursor: title.length }
+}
 
-  static open(title: string): InputTextState {
-    return new InputTextState(title, title.length)
-  }
+function cursorLeft({ value, cursor }: RenameState): RenameState {
+  return { value, cursor: Math.max(0, cursor - 1) }
+}
 
-  get trimmedValue(): string {
-    return this.value.trim()
-  }
+function cursorRight({ value, cursor }: RenameState): RenameState {
+  return { value, cursor: Math.min(value.length, cursor + 1) }
+}
 
-  moveCursorLeft(): InputTextState {
-    return new InputTextState(this.value, Math.max(0, this.cursorPosition - 1))
-  }
+// Start of the word left of the cursor: skip spaces, then the word itself.
+function cursorPrevWord({ value, cursor }: RenameState): RenameState {
+  let i = cursor
+  while (i > 0 && value[i - 1] === ' ') i--
+  while (i > 0 && value[i - 1] !== ' ') i--
+  return { value, cursor: i }
+}
 
-  moveCursorRight(): InputTextState {
-    return new InputTextState(this.value, Math.min(this.value.length, this.cursorPosition + 1))
-  }
+// Start of the word right of the cursor: skip the rest of this word, then spaces.
+function cursorNextWord({ value, cursor }: RenameState): RenameState {
+  let i = cursor
+  while (i < value.length && value[i] !== ' ') i++
+  while (i < value.length && value[i] === ' ') i++
+  return { value, cursor: i }
+}
 
-  // Start of the word left of the cursor: skip spaces, then the word itself.
-  moveCursorToPrevWord(): InputTextState {
-    let i = this.cursorPosition
-    while (i > 0 && this.value[i - 1] === ' ') i--
-    while (i > 0 && this.value[i - 1] !== ' ') i--
-    return new InputTextState(this.value, i)
-  }
+function backspace({ value, cursor }: RenameState): RenameState {
+  const c = Math.max(0, cursor - 1)
+  return { value: value.slice(0, c) + value.slice(cursor), cursor: c }
+}
 
-  // Start of the word right of the cursor: skip the rest of this word, then spaces.
-  moveCursorToNextWord(): InputTextState {
-    let i = this.cursorPosition
-    while (i < this.value.length && this.value[i] !== ' ') i++
-    while (i < this.value.length && this.value[i] === ' ') i++
-    return new InputTextState(this.value, i)
-  }
-
-  deleteCharBeforeCursor(): InputTextState {
-    const cursorPosition = Math.max(0, this.cursorPosition - 1)
-    return new InputTextState(
-      this.value.slice(0, cursorPosition) + this.value.slice(this.cursorPosition),
-      cursorPosition
-    )
-  }
-
-  insert(text: string): InputTextState {
-    return new InputTextState(
-      this.value.slice(0, this.cursorPosition) + text + this.value.slice(this.cursorPosition),
-      this.cursorPosition + text.length
-    )
+function insert({ value, cursor }: RenameState, text: string): RenameState {
+  return {
+    value: value.slice(0, cursor) + text + value.slice(cursor),
+    cursor: cursor + text.length
   }
 }
 
@@ -183,22 +168,24 @@ function PreviewMode({
   session,
   onBack,
   termWidth,
-  termHeight
+  termHeight,
+  loadMessages
 }: {
   session: Session
   onBack: () => void
   termWidth: number
   termHeight: number
+  loadMessages: (filePath: string) => Promise<Message[]>
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
   const [scroll, setScroll] = useState(0)
 
   useEffect(() => {
-    getSessionMessages(session.filePath).then((msgs) => {
+    loadMessages(session.filePath).then((msgs) => {
       setMessages(msgs)
       setScroll(Math.max(0, msgs.length - 1))
     })
-  }, [session.filePath])
+  }, [session.filePath, loadMessages])
 
   const viewHeight = termHeight - HEADER_HEIGHT - HINT_HEIGHT - 2
 
@@ -269,19 +256,21 @@ function DeleteConfirm({
   onConfirm,
   onCancel,
   termWidth,
-  termHeight
+  termHeight,
+  loadMessages
 }: {
   session: Session
   onConfirm: () => void
   onCancel: () => void
   termWidth: number
   termHeight: number
+  loadMessages: (filePath: string) => Promise<Message[]>
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
 
   useEffect(() => {
-    getSessionMessages(session.filePath).then(setMessages)
-  }, [session.filePath])
+    loadMessages(session.filePath).then(setMessages)
+  }, [session.filePath, loadMessages])
 
   useInput((input) => {
     if (input === 'y') onConfirm()
@@ -455,6 +444,7 @@ export interface AppProps {
   onResume: (session: Session) => void
   onDelete?: (filePath: string) => Promise<void>
   onRename?: (filePath: string, title: string) => Promise<void>
+  loadMessages?: (filePath: string) => Promise<Message[]>
 }
 
 export default function App({
@@ -463,12 +453,12 @@ export default function App({
   initialSortMode,
   onResume,
   onDelete = deleteSession,
-  onRename = renameSession
+  onRename = renameSession,
+  loadMessages = getSessionMessages
 }: AppProps) {
   const { exit } = useApp()
   const { stdout } = useStdout()
-  const termWidth = stdout?.columns || 80
-  const termHeight = stdout?.rows || 24
+  const { width: termWidth, height: termHeight } = termSize(stdout)
 
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -477,7 +467,8 @@ export default function App({
   const [sortMode, setSortMode] = useState<SortMode>(initialSortMode ?? 'recent')
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
-  const [rename, setRename] = useState<InputTextState | null>(null)
+  const [rename, setRename] = useState<RenameState | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Paint before any session is parsed: newest batch first, the rest in one later
@@ -555,6 +546,7 @@ export default function App({
 
   useInput((input, key) => {
     if (mode !== 'list') return
+    if (error) setError(null)
 
     if (rename !== null) {
       if (key.escape) {
@@ -562,34 +554,39 @@ export default function App({
         return
       }
       if (key.return) {
-        const title = rename.trimmedValue
+        const title = rename.value.trim()
         setRename(null)
         if (current && title && title !== (current.title || 'Untitled')) {
           // update the row in the same frame the input closes
           const updateRow = (s: Session) =>
             s.sessionId === current.sessionId ? { ...s, title } : s
           setSessions((cur) => cur.map(updateRow))
-          // persist in the background
-          onRename(current.filePath, title)
+          // persist in the background; revert and warn if it fails
+          onRename(current.filePath, title).catch((err) => {
+            const revertRow = (s: Session) =>
+              s.sessionId === current.sessionId ? { ...s, title: current.title } : s
+            setSessions((cur) => cur.map(revertRow))
+            setError(`could not save rename: ${err.message}`)
+          })
         }
         return
       }
       // alt+arrows arrive as meta+arrow (xterm-style CSI) or as ESC b / ESC f
       // (macOS terminals), which ink reports as meta plus a plain b / f.
       if (key.leftArrow || (key.meta && input === 'b')) {
-        setRename((r) => r && (key.meta ? r.moveCursorToPrevWord() : r.moveCursorLeft()))
+        setRename((r) => r && (key.meta ? cursorPrevWord(r) : cursorLeft(r)))
         return
       }
       if (key.rightArrow || (key.meta && input === 'f')) {
-        setRename((r) => r && (key.meta ? r.moveCursorToNextWord() : r.moveCursorRight()))
+        setRename((r) => r && (key.meta ? cursorNextWord(r) : cursorRight(r)))
         return
       }
       if (key.backspace || key.delete || input === '\x7f') {
-        setRename((r) => r && r.deleteCharBeforeCursor())
+        setRename((r) => r && backspace(r))
         return
       }
       if (input && input !== '\x7f' && !key.ctrl && !key.meta) {
-        setRename((r) => r && r.insert(input))
+        setRename((r) => r && insert(r, input))
       }
       return
     }
@@ -651,7 +648,7 @@ export default function App({
       onResume(current)
       exit()
     } else if (input === 'r' && current) {
-      setRename(InputTextState.open(current.title || 'Untitled'))
+      setRename(openRename(current.title || 'Untitled'))
     } else if (input === 'D' && current) setMode('deleting')
     else if (input === 's') {
       const next = nextSortMode(sortMode)
@@ -668,7 +665,8 @@ export default function App({
       session: current,
       onBack: () => setMode('list'),
       termWidth,
-      termHeight
+      termHeight,
+      loadMessages
     })
   }
 
@@ -705,7 +703,8 @@ export default function App({
         setViewStart((vs) => Math.min(vs, Math.max(0, next.length - 1 - listHeight)))
         setMode('list')
       },
-      onCancel: () => setMode('list')
+      onCancel: () => setMode('list'),
+      loadMessages
     })
   }
 
@@ -721,10 +720,8 @@ export default function App({
     lexic: 'sorted lexicographically'
   }
   const matchCount = filteredItems.filter((i) => i.type === 'session').length
-  const searchLabel =
-    isSearching || searchQuery
-      ? ` │ /${searchQuery}${isSearching ? '█' : ''}  ${matchCount} matches`
-      : ''
+  // searchQuery is only ever non-empty while searching, so the label tracks isSearching
+  const searchLabel = isSearching ? ` │ /${searchQuery}█  ${matchCount} matches` : ''
   const headerText = pad(
     sessions.length === 0 && loading
       ? ' clod │ loading sessions…'
@@ -750,7 +747,11 @@ export default function App({
         borderTop: false,
         borderColor: 'gray'
       },
-      h(Text, { backgroundColor: 'black', color: 'white', bold: true }, headerText)
+      h(
+        Text,
+        { backgroundColor: error ? 'red' : 'black', color: 'white', bold: true },
+        error ? pad(` ${error}`, termWidth) : headerText
+      )
     ),
     h(
       Box,
@@ -765,7 +766,7 @@ export default function App({
             ? h(InputText, {
                 key: item.session.sessionId,
                 value: rename.value,
-                cursor: rename.cursorPosition,
+                cursor: rename.cursor,
                 termWidth
               })
             : h(SessionRow, {

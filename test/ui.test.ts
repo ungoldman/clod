@@ -320,6 +320,24 @@ test('rename: row shows the new title before the write resolves (no flicker)', a
   unmount()
 })
 
+test('rename: failed write reverts the row and surfaces an error', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'old' })
+  const { lastFrame, stdin, unmount } = renderApp([s1], {
+    onRename: () => Promise.reject(new Error('write failed'))
+  })
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  for (const c of 'er') stdin.write(c)
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.match(lastFrame() ?? '', /old/)
+  assert.doesNotMatch(lastFrame() ?? '', /older/)
+  assert.match(lastFrame() ?? '', /could not save rename: write failed/)
+  unmount()
+})
+
 test('rename: esc discards, backspace edits, null title prefills Untitled', async () => {
   const s1 = mkSession({ sessionId: 's1', title: null })
   const { lastFrame, stdin, renamed, unmount } = renderApp([s1])
@@ -457,5 +475,244 @@ test('initialSortMode is honored', async () => {
   const { lastFrame, unmount } = renderApp([s1], { initialSortMode: 'lexic' })
   await delay()
   assert.match(lastFrame() ?? '', /sorted lexicographically/)
+  unmount()
+})
+
+test('delete: a failed onDelete keeps the session and closes the pane', async () => {
+  const file = await transcript([
+    { type: 'user', message: { role: 'user', content: 'hello there' }, timestamp: 't1' }
+  ])
+  const s1 = mkSession({ sessionId: 's1', title: 'keep me', filePath: file, lastTimestamp: 2 })
+  const s2 = mkSession({ sessionId: 's2', title: 'delete me', filePath: file, lastTimestamp: 1 })
+  const { lastFrame, stdin, unmount } = renderApp([s1, s2], {
+    onDelete: () => Promise.reject(new Error('nope'))
+  })
+  await delay()
+  stdin.write(KEY.down) // select s2
+  stdin.write('D')
+  await delay()
+  stdin.write('y') // confirm; the write rejects
+  await delay(20)
+  assert.doesNotMatch(lastFrame() ?? '', /Delete:/)
+  assert.match(lastFrame() ?? '', /delete me/)
+  unmount()
+})
+
+test('delete: removing the last session exits the app', async () => {
+  // ink-testing-library does not surface waitUntilExit, so exit() is observed
+  // through the app going unmounted: after it exits, further input is ignored
+  // (a still-mounted 0-session list would open the usage view on 'u').
+  const s1 = mkSession({ sessionId: 's1', title: 'only one' })
+  const { lastFrame, stdin, deleted, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('D')
+  await delay()
+  stdin.write('y') // confirm; empties the list and exits
+  await delay(20)
+  assert.equal(deleted.length, 1)
+  stdin.write('u') // ignored once exited; a live list would show the usage view
+  await delay(20)
+  assert.doesNotMatch(lastFrame() ?? '', /By model/)
+  unmount()
+})
+
+test('delete: a null-title session shows Delete: Untitled', async () => {
+  const file = await transcript([
+    { type: 'user', message: { role: 'user', content: 'hi' }, timestamp: 't1' }
+  ])
+  const s1 = mkSession({ sessionId: 's1', title: null, filePath: file })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('D')
+  await delay()
+  assert.match(lastFrame() ?? '', /Delete: Untitled/)
+  unmount()
+})
+
+test('delete: a transcript with no messages shows No messages.', async () => {
+  const file = await transcript([
+    { type: 'user', isMeta: true, message: { role: 'user', content: 'meta' } }
+  ])
+  const s1 = mkSession({ sessionId: 's1', title: 'empty one', filePath: file })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('D')
+  await delay()
+  assert.match(lastFrame() ?? '', /No messages\./)
+  unmount()
+})
+
+test('delete: preview renders an AI message with the AI prefix', async () => {
+  const file = await transcript([
+    {
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'answer one' }] },
+      timestamp: 't2'
+    }
+  ])
+  const s1 = mkSession({ sessionId: 's1', title: 'has ai', filePath: file })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('D')
+  await delay()
+  assert.match(plain(lastFrame()), /AI:/)
+  unmount()
+})
+
+test('preview: a null-title session shows Preview: Untitled', async () => {
+  const file = await transcript([
+    { type: 'user', message: { role: 'user', content: 'question one' }, timestamp: 't1' }
+  ])
+  const s1 = mkSession({ sessionId: 's1', title: null, filePath: file })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write(KEY.space)
+  await delay()
+  assert.match(lastFrame() ?? '', /Preview: Untitled/)
+  unmount()
+})
+
+test('usage dashboard closes via esc', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'x', lastTimestamp: Date.now() })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('u')
+  await delay(20)
+  assert.match(lastFrame() ?? '', /By model/)
+  stdin.write(KEY.esc) // back to list
+  await delay(20)
+  assert.doesNotMatch(lastFrame() ?? '', /By model/)
+  unmount()
+})
+
+test('usage dashboard closes via q', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'x', lastTimestamp: Date.now() })
+  const { lastFrame, stdin, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('u')
+  await delay(20)
+  assert.match(lastFrame() ?? '', /By model/)
+  stdin.write('q') // back to list
+  await delay(20)
+  assert.doesNotMatch(lastFrame() ?? '', /By model/)
+  unmount()
+})
+
+test('rename: a keypress dismisses the lingering rename error', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'old' })
+  const { lastFrame, stdin, unmount } = renderApp([s1], {
+    onRename: () => Promise.reject(new Error('write failed'))
+  })
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  for (const c of 'er') stdin.write(c)
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.match(lastFrame() ?? '', /could not save rename: write failed/)
+  stdin.write(KEY.down) // any keypress dismisses the error
+  await delay(20)
+  assert.doesNotMatch(lastFrame() ?? '', /could not save rename/)
+  unmount()
+})
+
+test('rename: a null-title session renames to a real title and persists', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: null, filePath: '/tmp/s1.jsonl' })
+  const { lastFrame, stdin, renamed, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  assert.match(lastFrame() ?? '', /> Untitled█/)
+  for (let i = 0; i < 8; i++) stdin.write(KEY.backspace) // clear "Untitled"
+  await delay(20)
+  for (const c of 'named') stdin.write(c)
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.deepEqual(renamed, [['/tmp/s1.jsonl', 'named']])
+  assert.match(lastFrame() ?? '', /named/)
+  unmount()
+})
+
+test('rename: in a multi-session list only the selected row changes', async () => {
+  const s1 = mkSession({
+    sessionId: 's1',
+    title: 'first',
+    filePath: '/tmp/s1.jsonl',
+    lastTimestamp: 2
+  })
+  const s2 = mkSession({
+    sessionId: 's2',
+    title: 'second',
+    filePath: '/tmp/s2.jsonl',
+    lastTimestamp: 1
+  })
+  const { lastFrame, stdin, renamed, unmount } = renderApp([s1, s2])
+  await delay()
+  stdin.write(KEY.down) // select s2
+  await delay(20)
+  stdin.write('r')
+  await delay(20)
+  stdin.write('X')
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.deepEqual(renamed, [['/tmp/s2.jsonl', 'secondX']])
+  const frame = lastFrame() ?? ''
+  assert.match(frame, /secondX/)
+  assert.match(frame, /first/)
+  unmount()
+})
+
+test('rename: a failed write in a multi-session list reverts only the selected row', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'first', lastTimestamp: 2 })
+  const s2 = mkSession({ sessionId: 's2', title: 'second', lastTimestamp: 1 })
+  const { lastFrame, stdin, unmount } = renderApp([s1, s2], {
+    onRename: () => Promise.reject(new Error('boom'))
+  })
+  await delay()
+  stdin.write(KEY.down) // select s2
+  await delay(20)
+  stdin.write('r')
+  await delay(20)
+  stdin.write('X')
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(20)
+  const frame = lastFrame() ?? ''
+  assert.match(frame, /second/)
+  assert.doesNotMatch(frame, /secondX/)
+  assert.match(frame, /first/)
+  assert.match(frame, /could not save rename: boom/)
+  unmount()
+})
+
+test('header shows a loading marker while a background batch is pending', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'alpha', lastTimestamp: 2 })
+  const s2 = mkSession({ sessionId: 's2', title: 'beta', lastTimestamp: 1 })
+  const { lastFrame, unmount } = renderApp([s1], {
+    loadFirst: () => [s1],
+    loadRest: () => new Promise((res) => setTimeout(() => res([s2]), 80))
+  })
+  await delay() // loadFirst applied; loadRest still pending, so loading is true with a session
+  const frame = lastFrame() ?? ''
+  assert.match(frame, /1\+ sessions/)
+  assert.match(frame, /loading…/)
+  await delay(100) // let loadRest settle so its timer does not outlive the test
+  unmount()
+})
+
+test('preview: a nav key before messages load is ignored', async () => {
+  const s1 = mkSession({ sessionId: 's1', title: 'p' })
+  const { lastFrame, stdin, unmount } = renderApp([s1], {
+    loadMessages: () => new Promise(() => {}) // never resolves: messages stay null
+  })
+  await delay()
+  stdin.write(' ') // open preview
+  await delay(20)
+  stdin.write(KEY.down) // messages still null: hits the `if (!messages) return` guard
+  await delay(20)
+  assert.match(lastFrame() ?? '', /Loading…/) // still loading, nav was a no-op
   unmount()
 })
