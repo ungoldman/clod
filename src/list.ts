@@ -11,6 +11,13 @@ const sessionIdAt = (items: DisplayItem[], i: number): string =>
 export const BRANCH_MIN = 8
 export const DIR_MIN = 10
 
+export function termSize(stdout?: { columns?: number; rows?: number }): {
+  width: number
+  height: number
+} {
+  return { width: stdout?.columns || 80, height: stdout?.rows || 24 }
+}
+
 export function truncate(str: string | null | undefined, max: number): string {
   if (!str) return ''
   return str.length > max ? `${str.slice(0, max - 1)}…` : str

@@ -12,6 +12,7 @@ import {
   findAdjacentSessionId,
   nextSortMode,
   pad,
+  termSize,
   truncate,
   usedStr
 } from './list.ts'
@@ -113,7 +114,6 @@ function InputText({
   )
 }
 
-// The rename input's value+cursor pair. Edits return a new state.
 type RenameState = { value: string; cursor: number }
 
 function openRename(title: string): RenameState {
@@ -168,22 +168,24 @@ function PreviewMode({
   session,
   onBack,
   termWidth,
-  termHeight
+  termHeight,
+  loadMessages
 }: {
   session: Session
   onBack: () => void
   termWidth: number
   termHeight: number
+  loadMessages: (filePath: string) => Promise<Message[]>
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
   const [scroll, setScroll] = useState(0)
 
   useEffect(() => {
-    getSessionMessages(session.filePath).then((msgs) => {
+    loadMessages(session.filePath).then((msgs) => {
       setMessages(msgs)
       setScroll(Math.max(0, msgs.length - 1))
     })
-  }, [session.filePath])
+  }, [session.filePath, loadMessages])
 
   const viewHeight = termHeight - HEADER_HEIGHT - HINT_HEIGHT - 2
 
@@ -254,19 +256,21 @@ function DeleteConfirm({
   onConfirm,
   onCancel,
   termWidth,
-  termHeight
+  termHeight,
+  loadMessages
 }: {
   session: Session
   onConfirm: () => void
   onCancel: () => void
   termWidth: number
   termHeight: number
+  loadMessages: (filePath: string) => Promise<Message[]>
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
 
   useEffect(() => {
-    getSessionMessages(session.filePath).then(setMessages)
-  }, [session.filePath])
+    loadMessages(session.filePath).then(setMessages)
+  }, [session.filePath, loadMessages])
 
   useInput((input) => {
     if (input === 'y') onConfirm()
@@ -440,6 +444,7 @@ export interface AppProps {
   onResume: (session: Session) => void
   onDelete?: (filePath: string) => Promise<void>
   onRename?: (filePath: string, title: string) => Promise<void>
+  loadMessages?: (filePath: string) => Promise<Message[]>
 }
 
 export default function App({
@@ -448,12 +453,12 @@ export default function App({
   initialSortMode,
   onResume,
   onDelete = deleteSession,
-  onRename = renameSession
+  onRename = renameSession,
+  loadMessages = getSessionMessages
 }: AppProps) {
   const { exit } = useApp()
   const { stdout } = useStdout()
-  const termWidth = stdout?.columns || 80
-  const termHeight = stdout?.rows || 24
+  const { width: termWidth, height: termHeight } = termSize(stdout)
 
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -541,7 +546,6 @@ export default function App({
 
   useInput((input, key) => {
     if (mode !== 'list') return
-    // any keypress dismisses a lingering error
     if (error) setError(null)
 
     if (rename !== null) {
@@ -557,7 +561,7 @@ export default function App({
           const updateRow = (s: Session) =>
             s.sessionId === current.sessionId ? { ...s, title } : s
           setSessions((cur) => cur.map(updateRow))
-          // persist in the background; revert the row and warn if the write fails
+          // persist in the background; revert and warn if it fails
           onRename(current.filePath, title).catch((err) => {
             const revertRow = (s: Session) =>
               s.sessionId === current.sessionId ? { ...s, title: current.title } : s
@@ -661,7 +665,8 @@ export default function App({
       session: current,
       onBack: () => setMode('list'),
       termWidth,
-      termHeight
+      termHeight,
+      loadMessages
     })
   }
 
@@ -698,7 +703,8 @@ export default function App({
         setViewStart((vs) => Math.min(vs, Math.max(0, next.length - 1 - listHeight)))
         setMode('list')
       },
-      onCancel: () => setMode('list')
+      onCancel: () => setMode('list'),
+      loadMessages
     })
   }
 
@@ -714,10 +720,8 @@ export default function App({
     lexic: 'sorted lexicographically'
   }
   const matchCount = filteredItems.filter((i) => i.type === 'session').length
-  const searchLabel =
-    isSearching || searchQuery
-      ? ` │ /${searchQuery}${isSearching ? '█' : ''}  ${matchCount} matches`
-      : ''
+  // searchQuery is only ever non-empty while searching, so the label tracks isSearching
+  const searchLabel = isSearching ? ` │ /${searchQuery}█  ${matchCount} matches` : ''
   const headerText = pad(
     sessions.length === 0 && loading
       ? ' clod │ loading sessions…'
