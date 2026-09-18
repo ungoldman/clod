@@ -31,6 +31,12 @@ export function padLeft(str: string, len: number): string {
   return str.length >= len ? str.slice(0, len) : ' '.repeat(len - str.length) + str
 }
 
+export function displayTitle(session: Session): { text: string; fallback: boolean } {
+  if (session.title) return { text: session.title, fallback: false }
+  const prompt = session.firstUserMessage?.replace(/\s+/g, ' ').trim()
+  return { text: prompt || 'Untitled', fallback: true }
+}
+
 // subsequence fuzzy match: query chars must appear in order, case-insensitive
 export function fuzzyMatch(query: string, target: string): boolean {
   if (!query) return true
@@ -46,7 +52,8 @@ export function fuzzyMatch(query: string, target: string): boolean {
 // Title matches fuzzy (it's short); content matches by substring (fuzzy over a
 // long blob hits everything).
 export function sessionMatches(query: string, session: Session): boolean {
-  if (fuzzyMatch(query, session.title || 'Untitled')) return true
+  const { text, fallback } = displayTitle(session)
+  if ((!fallback || text === 'Untitled') && fuzzyMatch(query, text)) return true
   return session.searchText ? session.searchText.includes(query.toLowerCase()) : false
 }
 
@@ -73,9 +80,10 @@ export function computeRowLayout(opts: {
 
   // flex = space for title + branch + dir after the fixed right block
   // (used/ctx/time + three 2-space gaps).
-  const fullTitle = session.title || 'Untitled'
+  const { text: fullTitle, fallback } = displayTitle(session)
   const flex = termWidth - 2 - usedWidth - ctxWidth - timeWidth - 6
-  let avail = flex - fullTitle.length
+  const claim = fallback ? Math.min(fullTitle.length, Math.floor(flex / 2)) : fullTitle.length
+  let avail = flex - claim
 
   let dirWidth = 0
   if (showDir && avail >= DIR_MIN + 2) {
@@ -95,6 +103,7 @@ export function computeRowLayout(opts: {
 
   return {
     title: pad(truncate(fullTitle, titleWidth), titleWidth),
+    titleFallback: fallback,
     branchCol: branchWidth > 0 ? truncate(naturalBranch, branchWidth) : null,
     dirCol: dirWidth > 0 ? truncate(pathStr, dirWidth) : null,
     usedCol: padLeft(usedStr(session), usedWidth),
@@ -110,8 +119,8 @@ export function buildDisplayItems(sessions: Session[], sortMode: SortMode): Disp
     sorted = [...sessions].sort((a, b) => b.lastTimestamp - a.lastTimestamp)
   } else if (sortMode === 'lexic') {
     sorted = [...sessions].sort((a, b) => {
-      const ta = a.title || 'Untitled'
-      const tb = b.title || 'Untitled'
+      const ta = displayTitle(a).text
+      const tb = displayTitle(b).text
       return ta < tb ? -1 : ta > tb ? 1 : b.lastTimestamp - a.lastTimestamp
     })
   } else {

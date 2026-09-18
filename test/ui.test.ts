@@ -717,6 +717,21 @@ test('preview: a nav key before messages load is ignored', async () => {
   unmount()
 })
 
+test('a session with no custom title falls back to its opening prompt', async () => {
+  const { lastFrame, stdin, cleanup } = renderApp([
+    mkSession({ sessionId: 'a', title: null, firstUserMessage: 'wire up the fallback' }),
+    mkSession({ sessionId: 'b', title: null, firstUserMessage: 'and now the tests' })
+  ])
+  await delay()
+  assert.match(plain(lastFrame()), /> wire up the fallback/)
+  assert.match(plain(lastFrame()), /and now the tests/)
+  assert.doesNotMatch(plain(lastFrame()), /Untitled/)
+  stdin.write(KEY.down)
+  await delay()
+  assert.match(plain(lastFrame()), /> and now the tests/)
+  cleanup()
+})
+
 test('preview: scrolling past the top does not bank presses the next down spends', async () => {
   const file = await transcript(
     Array.from({ length: 30 }, (_, i) => ({
