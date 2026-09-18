@@ -716,3 +716,26 @@ test('preview: a nav key before messages load is ignored', async () => {
   assert.match(lastFrame() ?? '', /Loading…/) // still loading, nav was a no-op
   unmount()
 })
+
+test('preview: scrolling past the top does not bank presses the next down spends', async () => {
+  const file = await transcript(
+    Array.from({ length: 30 }, (_, i) => ({
+      type: 'user',
+      message: { role: 'user', content: `line ${String(i).padStart(2, '0')}` },
+      timestamp: `t${i}`
+    }))
+  )
+  const { lastFrame, stdin, unmount } = renderApp([
+    mkSession({ sessionId: 's1', title: 'scrolled', filePath: file })
+  ])
+  await delay()
+  stdin.write(KEY.space)
+  await delay()
+  for (let i = 0; i < 40; i++) stdin.write(KEY.up)
+  await delay(20)
+  assert.match(plain(lastFrame()), /line 00/)
+  stdin.write(KEY.down)
+  await delay(20)
+  assert.doesNotMatch(plain(lastFrame()), /line 00/)
+  unmount()
+})

@@ -195,8 +195,11 @@ function PreviewMode({
       return
     }
     if (!messages) return
+    // below minScroll the window is already at the top, so further ups only
+    // bank presses the next down has to spend getting back
+    const minScroll = Math.min(Math.max(0, viewHeight - 2), Math.max(0, messages.length - 1))
     if (key.downArrow) setScroll((s) => Math.min(s + 1, Math.max(0, messages.length - 1)))
-    if (key.upArrow) setScroll((s) => Math.max(0, s - 1))
+    if (key.upArrow) setScroll((s) => Math.max(minScroll, s - 1))
   })
 
   const headerTitle = truncate(session.title || 'Untitled', termWidth - 10)
