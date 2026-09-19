@@ -509,3 +509,55 @@ test('deleteSession: history without the session id is left untouched', async ()
     assert.equal(await readFile(history, 'utf8'), `${JSON.stringify({ sessionId: 'other' })}\n`)
   })
 })
+
+test('parseSession: firstUserMessage is the opening prompt, skipping notices', async () => {
+  const { file, stat: st } = await makeFile([
+    { type: 'user', message: { role: 'user', content: '[Request interrupted by user]' } },
+    { type: 'user', message: { role: 'user', content: '   ' } },
+    {
+      type: 'user',
+      message: { role: 'user', content: 'wire up the fallback' },
+      cwd: '/p/first'
+    },
+    { type: 'user', message: { role: 'user', content: 'and now the tests' } }
+  ])
+  const s = await parseSession(file, st)
+  assert.ok(s)
+  assert.equal(s.firstUserMessage, 'wire up the fallback')
+  assert.equal(s.lastUserMessage, 'and now the tests')
+})
+
+test('parseSession: a session of nothing but notices has no firstUserMessage', async () => {
+  const { file, stat: st } = await makeFile([
+    {
+      type: 'user',
+      message: { role: 'user', content: '[Request interrupted by user]' },
+      cwd: '/p/none'
+    }
+  ])
+  const s = await parseSession(file, st)
+  assert.ok(s)
+  assert.equal(s.firstUserMessage, null)
+})
+
+test('a slash command is a prompt, with its args', async () => {
+  const cmd = (body: string) => ({
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: body }] },
+    cwd: '/p/cmd'
+  })
+  const { file, stat: st } = await makeFile([
+    cmd('<command-message>q</command-message>\n<command-name>/q</command-name>'),
+    cmd('<command-name>/q</command-name>\n<command-args>  plan the day  </command-args>'),
+    cmd('<command-args>orphaned</command-args>'),
+    { type: 'user', message: { role: 'user', content: '<local-command-stdout>out' } }
+  ])
+  const s = await parseSession(file, st)
+  assert.ok(s)
+  assert.equal(s.firstUserMessage, '/q')
+  assert.equal(s.lastUserMessage, '/q plan the day')
+  assert.deepEqual(
+    (await getSessionMessages(file)).map((m) => m.text),
+    ['/q', '/q plan the day']
+  )
+})

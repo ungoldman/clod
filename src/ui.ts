@@ -8,6 +8,7 @@ import {
   computeRowLayout,
   ctxStr,
   type DisplayItem,
+  displayTitle,
   filterItems,
   findAdjacentSessionId,
   nextSortMode,
@@ -55,7 +56,7 @@ const SessionRow = memo(function SessionRow({
   usedWidth: number
   ctxWidth: number
 }) {
-  const { title, branchCol, dirCol, usedCol, ctxCol, timeCol } = computeRowLayout({
+  const { title, titleFallback, branchCol, dirCol, usedCol, ctxCol, timeCol } = computeRowLayout({
     session,
     termWidth,
     sortMode,
@@ -67,16 +68,22 @@ const SessionRow = memo(function SessionRow({
   if (selected) {
     const branchPart = branchCol ? `  ${branchCol}` : ''
     const dirPart = dirCol ? `  ${dirCol}` : ''
-    const line = `> ${title}${branchPart}${dirPart}  ${usedCol}  ${ctxCol}  ${timeCol}`
-    const full = pad(line, termWidth)
-    return h(Box, {}, h(Text, { backgroundColor: 'grey', color: 'white', bold: true }, full))
+    const rest = `${branchPart}${dirPart}  ${usedCol}  ${ctxCol}  ${timeCol}`
+    const hl = { backgroundColor: 'grey', color: 'white', bold: true }
+    return h(
+      Box,
+      {},
+      h(Text, hl, '> '),
+      h(Text, { ...hl, bold: !titleFallback, italic: titleFallback }, title),
+      h(Text, hl, pad(rest, Math.max(0, termWidth - 2 - title.length)))
+    )
   }
 
   return h(
     Box,
     { flexDirection: 'row' },
     h(Text, {}, '  '),
-    h(Text, {}, title),
+    h(Text, { dimColor: titleFallback, italic: titleFallback }, title),
     branchCol ? h(Text, { color: 'yellow', dimColor: true }, `  ${branchCol}`) : null,
     dirCol ? h(Text, { color: 'cyan', dimColor: true }, `  ${dirCol}`) : null,
     h(Text, { dimColor: true }, `  ${usedCol}`),
@@ -195,11 +202,14 @@ function PreviewMode({
       return
     }
     if (!messages) return
+    // below minScroll the window is already at the top, so further ups only
+    // bank presses the next down has to spend getting back
+    const minScroll = Math.min(Math.max(0, viewHeight - 2), Math.max(0, messages.length - 1))
     if (key.downArrow) setScroll((s) => Math.min(s + 1, Math.max(0, messages.length - 1)))
-    if (key.upArrow) setScroll((s) => Math.max(0, s - 1))
+    if (key.upArrow) setScroll((s) => Math.max(minScroll, s - 1))
   })
 
-  const headerTitle = truncate(session.title || 'Untitled', termWidth - 10)
+  const headerTitle = truncate(displayTitle(session).text, termWidth - 10)
 
   return h(
     Box,
@@ -289,7 +299,7 @@ function DeleteConfirm({
       h(
         Text,
         { color: 'white', bold: true },
-        `Delete: ${truncate(session.title || 'Untitled', termWidth - 10)}`
+        `Delete: ${truncate(displayTitle(session).text, termWidth - 10)}`
       )
     ),
     h(Box, { paddingX: 1 }, h(Text, { dimColor: true }, session.sessionId)),

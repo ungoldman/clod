@@ -8,6 +8,7 @@ import {
   computeRowLayout,
   ctxStr,
   type DisplayItem,
+  displayTitle,
   filterItems,
   findAdjacentSessionId,
   fuzzyMatch,
@@ -297,4 +298,57 @@ test('findAdjacentSessionId: prefers below, falls back above, else null', () => 
   assert.equal(findAdjacentSessionId(items, 4, onlyAbove), 's2')
   // nothing survives
   assert.equal(findAdjacentSessionId(items, 4, new Set<string>()), null)
+})
+
+test('displayTitle: real title, prompt fallback, neither', () => {
+  const real = mkSession({ title: 'ESLint Ratchet', firstUserMessage: 'ignored' })
+  assert.deepEqual(displayTitle(real), { text: 'ESLint Ratchet', fallback: false })
+  const prompt = mkSession({ title: null, firstUserMessage: '  wire up\n  the fallback ' })
+  assert.deepEqual(displayTitle(prompt), { text: 'wire up the fallback', fallback: true })
+  const bare = mkSession({ title: null, firstUserMessage: null })
+  assert.deepEqual(displayTitle(bare), { text: 'Untitled', fallback: true })
+})
+
+test('computeRowLayout: a fallback title yields half the flex to dir and branch', () => {
+  const opts = {
+    termWidth: 120,
+    sortMode: 'recent' as const,
+    timeWidth: 4,
+    usedWidth: 8,
+    ctxWidth: 6
+  }
+  const long = 'x'.repeat(200)
+  const fb = computeRowLayout({
+    session: mkSession({ title: null, firstUserMessage: long, gitBranch: 'main' }),
+    ...opts
+  })
+  assert.equal(fb.titleFallback, true)
+  assert.equal(fb.branchCol, 'main')
+  assert.equal(fb.dirCol, '/home/u/proj')
+  const real = computeRowLayout({
+    session: mkSession({ title: long, gitBranch: 'main' }),
+    ...opts
+  })
+  assert.equal(real.titleFallback, false)
+  assert.equal(real.branchCol, null)
+  assert.equal(real.dirCol, null)
+})
+
+test('buildDisplayItems: lexic sorts on the fallback title', () => {
+  const a = mkSession({ sessionId: 'a', title: null, firstUserMessage: 'zebra' })
+  const b = mkSession({ sessionId: 'b', title: null, firstUserMessage: 'apple' })
+  const items = buildDisplayItems([a, b], 'lexic')
+  const ids = items.map((i) => (i.type === 'session' ? i.session.sessionId : '')).filter(Boolean)
+  assert.deepEqual(ids, ['b', 'a'])
+})
+
+test('sessionMatches: a fallback title matches through searchText, not fuzzy', () => {
+  const s = mkSession({ title: null, firstUserMessage: 'wire up the fallback', searchText: '' })
+  assert.equal(sessionMatches('wup', s), false)
+  const s2 = mkSession({
+    title: null,
+    firstUserMessage: 'wire up the fallback',
+    searchText: 'wire up the fallback'
+  })
+  assert.equal(sessionMatches('fallback', s2), true)
 })

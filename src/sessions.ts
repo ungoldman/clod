@@ -16,6 +16,7 @@ export interface Session {
   title: string | null
   cwd: string
   gitBranch: string | null
+  firstUserMessage: string | null
   lastUserMessage: string | null
   contextTokens: number | null
   models: Record<string, TokenUsage>
@@ -79,9 +80,31 @@ const projectsDir = () => join(claudeDir(), 'projects')
 // with an opening tag is injected content, not a real user message
 const INJECTED = /^<[a-z]/i
 
-function isRealUserMessage(record: RawRecord): boolean {
-  if (record.type !== 'user' || record.isMeta) return false
+// Claude Code writes "[Request interrupted by user]" and the like as user records
+const NOTICE = /^\[[^\]]*\]$/
+
+// A slash command arrives as one injected block, with what the user typed inside
+// <command-args>; without this the whole prompt reads as system content.
+const COMMAND =
+  /<command-name>([^<]*)<\/command-name>(?:\s*<command-args>([\s\S]*?)<\/command-args>)?/
+
+function rawText(content: RawContent | undefined): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.find((b) => b.type === 'text')?.text ?? ''
+  return ''
+}
+
+function userText(record: RawRecord): string | null {
+  if (record.type !== 'user' || record.isMeta) return null
   const content = record.message?.content
+  if (hasRealText(content)) return extractText(content)
+  const m = COMMAND.exec(rawText(content))
+  if (!m) return null
+  const args = m[2]?.trim()
+  return args ? `${m[1].trim()} ${args}` : m[1].trim()
+}
+
+function hasRealText(content: RawContent | undefined): boolean {
   if (typeof content === 'string') return !INJECTED.test(content)
   if (Array.isArray(content))
     return content.some((b) => b.type === 'text' && !INJECTED.test(b.text ?? ''))
@@ -167,6 +190,7 @@ export async function parseSession(filePath: string, fileStats: Stats): Promise<
     let title: string | null = null
     let cwd: string | null = null
     let gitBranch: string | null = null
+    let firstUserMessage: string | null = null
     let lastUserMessage: string | null = null
     let lastTimestamp: string | null = null
     let contextTokens: number | null = null // input context of the most recent assistant turn
@@ -213,9 +237,14 @@ export async function parseSession(filePath: string, fileStats: Stats): Promise<
             const ctx = accumulateUsage(r.message, models) // usage on every turn, incl. tool-only
             if (ctx != null) contextTokens = ctx
             searchParts.push(textBlocks(r.message?.content))
-          } else if (isRealUserMessage(r)) {
-            lastUserMessage = extractText(r.message?.content)
-            searchParts.push(lastUserMessage)
+          } else {
+            const text = userText(r)
+            if (text !== null) {
+              lastUserMessage = text
+              searchParts.push(text)
+              const trimmed = text.trim()
+              if (!firstUserMessage && trimmed && !NOTICE.test(trimmed)) firstUserMessage = trimmed
+            }
           }
         } catch {}
       } else if (
@@ -253,6 +282,7 @@ export async function parseSession(filePath: string, fileStats: Stats): Promise<
       title,
       cwd,
       gitBranch,
+      firstUserMessage,
       lastUserMessage,
       contextTokens,
       models,
@@ -324,12 +354,9 @@ export async function getSessionMessages(filePath: string): Promise<Message[]> {
     for (const line of raw.split('\n').filter(Boolean)) {
       try {
         const r: RawRecord = JSON.parse(line)
-        if (isRealUserMessage(r)) {
-          messages.push({
-            role: 'user',
-            text: extractText(r.message?.content),
-            timestamp: r.timestamp
-          })
+        const text = userText(r)
+        if (text !== null) {
+          messages.push({ role: 'user', text, timestamp: r.timestamp })
         } else if (r.type === 'assistant') {
           const content = r.message?.content
           let text = ''

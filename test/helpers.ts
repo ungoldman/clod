@@ -7,6 +7,7 @@ export function mkSession(o: Partial<Session> = {}): Session {
     title: 'a title',
     cwd: '/home/u/proj',
     gitBranch: null,
+    firstUserMessage: null,
     lastUserMessage: null,
     contextTokens: null,
     models: {},
