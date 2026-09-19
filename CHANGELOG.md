@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 - Commit convention is based on [Conventional Commits](http://conventionalcommits.org).
 - Versioning and releases are automated with [Release Please](https://github.com/googleapis/release-please).
 
+## [1.3.0](https://github.com/ungoldman/clod/compare/v1.2.0...v1.3.0) (2026-09-19)
+
+
+### Features
+
+* fall back title to the opening prompt ([#19](https://github.com/ungoldman/clod/issues/19)) ([c57923a](https://github.com/ungoldman/clod/commit/c57923a0d34e6ee8b51f0543aaca745c92671c99))
+
 ## [1.2.0](https://github.com/ungoldman/clod/compare/v1.1.0...v1.2.0) (2026-08-26)
 
 
