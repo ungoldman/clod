@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 - Commit convention is based on [Conventional Commits](http://conventionalcommits.org).
 - Versioning and releases are automated with [Release Please](https://github.com/googleapis/release-please).
 
+## [1.3.1](https://github.com/ungoldman/clod/compare/v1.3.0...v1.3.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* delete sessions on WSL ([#22](https://github.com/ungoldman/clod/issues/22)) ([633b003](https://github.com/ungoldman/clod/commit/633b003d7daa32b080cdc58b0ce752223fbc3c66))
+
 ## [1.3.0](https://github.com/ungoldman/clod/compare/v1.2.0...v1.3.0) (2026-09-19)
 
 
