@@ -4,5 +4,6 @@ import type { TrashFn } from './sessions.ts'
 // this adapter stays out of the coverage gate.
 export const trashPaths: TrashFn = async (paths) => {
   const { default: trash } = await import('trash') // lazy: only deletes need it
-  await trash(paths)
+  // one call per path: trash's WSL branch misroutes a batch to PowerShell
+  for (const p of paths) await trash(p)
 }

@@ -697,7 +697,8 @@ export default function App({
       onConfirm: async () => {
         try {
           await onDelete(current.filePath)
-        } catch {
+        } catch (err) {
+          setError(`could not delete: ${(err as Error).message}`)
           setMode('list')
           return
         }

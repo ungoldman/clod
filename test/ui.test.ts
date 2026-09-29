@@ -478,7 +478,7 @@ test('initialSortMode is honored', async () => {
   unmount()
 })
 
-test('delete: a failed onDelete keeps the session and closes the pane', async () => {
+test('delete: a failed onDelete keeps the session and surfaces an error', async () => {
   const file = await transcript([
     { type: 'user', message: { role: 'user', content: 'hello there' }, timestamp: 't1' }
   ])
@@ -495,6 +495,7 @@ test('delete: a failed onDelete keeps the session and closes the pane', async ()
   await delay(20)
   assert.doesNotMatch(lastFrame() ?? '', /Delete:/)
   assert.match(lastFrame() ?? '', /delete me/)
+  assert.match(lastFrame() ?? '', /could not delete: nope/)
   unmount()
 })
 
