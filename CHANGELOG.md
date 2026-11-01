@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 - Commit convention is based on [Conventional Commits](http://conventionalcommits.org).
 - Versioning and releases are automated with [Release Please](https://github.com/googleapis/release-please).
 
+## [1.3.2](https://github.com/ungoldman/clod/compare/v1.3.1...v1.3.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* track terminal size with useWindowSize ([0e0eb44](https://github.com/ungoldman/clod/commit/0e0eb44d186399b673f479f66e59897d8891e7d9))
+
 ## [1.3.1](https://github.com/ungoldman/clod/compare/v1.3.0...v1.3.1) (2026-09-29)
 
 
