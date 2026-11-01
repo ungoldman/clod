@@ -12,7 +12,7 @@ importers:
         specifier: ^7.1.0
         version: 7.1.1(@types/react@19.3.0)(react@19.3.0)
       react:
-        specifier: ^19.2.7
+        specifier: ^19.3.0
         version: 19.3.0
       trash:
         specifier: ^10.1.1
@@ -25,7 +25,7 @@ importers:
         specifier: ^22.20.0
         version: 22.20.4
       '@types/react':
-        specifier: ^19.2.17
+        specifier: ^19.3.0
         version: 19.3.0
       ink-testing-library:
         specifier: ^4.0.0

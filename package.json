@@ -9,13 +9,13 @@
   "bugs": "https://github.com/ungoldman/clod/issues",
   "dependencies": {
     "ink": "^7.1.0",
-    "react": "^19.2.7",
+    "react": "^19.3.0",
     "trash": "^10.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",
     "@types/node": "^22.20.0",
-    "@types/react": "^19.2.17",
+    "@types/react": "^19.3.0",
     "ink-testing-library": "^4.0.0",
     "typescript": "^7.0.2"
   },
