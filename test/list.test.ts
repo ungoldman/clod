@@ -16,7 +16,6 @@ import {
   pad,
   padLeft,
   sessionMatches,
-  termSize,
   truncate,
   usedStr
 } from '../src/list.ts'
@@ -33,12 +32,6 @@ test('pad', () => {
   assert.equal(pad('ab', 5), 'ab   ')
   assert.equal(pad('abcdef', 3), 'abc')
   assert.equal(pad('abc', 3), 'abc')
-})
-
-test('termSize', () => {
-  assert.deepEqual(termSize({ columns: 120, rows: 40 }), { width: 120, height: 40 })
-  assert.deepEqual(termSize({}), { width: 80, height: 24 }) // non-TTY: no columns/rows
-  assert.deepEqual(termSize(), { width: 80, height: 24 }) // no stdout at all
 })
 
 test('padLeft', () => {

@@ -1,4 +1,4 @@
-import { Box, Text, useApp, useInput, useStdout } from 'ink'
+import { Box, Text, useApp, useInput, useWindowSize } from 'ink'
 import React from 'react'
 import { type SortMode, saveConfig } from './config.ts'
 import {
@@ -13,7 +13,6 @@ import {
   findAdjacentSessionId,
   nextSortMode,
   pad,
-  termSize,
   truncate,
   usedStr
 } from './list.ts'
@@ -469,8 +468,7 @@ export default function App({
   onSaveConfig = saveConfig
 }: AppProps) {
   const { exit } = useApp()
-  const { stdout } = useStdout()
-  const { width: termWidth, height: termHeight } = termSize(stdout)
+  const { columns: termWidth, rows: termHeight } = useWindowSize()
 
   const [sessions, setSessions] = useState<Session[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
