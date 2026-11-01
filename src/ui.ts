@@ -455,6 +455,7 @@ export interface AppProps {
   onDelete?: (filePath: string) => Promise<void>
   onRename?: (filePath: string, title: string) => Promise<void>
   loadMessages?: (filePath: string) => Promise<Message[]>
+  onSaveConfig?: (config: { sortMode: SortMode }) => Promise<void>
 }
 
 export default function App({
@@ -464,7 +465,8 @@ export default function App({
   onResume,
   onDelete = deleteSession,
   onRename = renameSession,
-  loadMessages = getSessionMessages
+  loadMessages = getSessionMessages,
+  onSaveConfig = saveConfig
 }: AppProps) {
   const { exit } = useApp()
   const { stdout } = useStdout()
@@ -664,7 +666,7 @@ export default function App({
       const next = nextSortMode(sortMode)
       setSortMode(next)
       setViewStart(0)
-      saveConfig({ sortMode: next }) // persist for next launch (fire and forget)
+      onSaveConfig({ sortMode: next }) // persist for next launch (fire and forget)
     } else if (input === 'q' || key.escape) exit()
   })
 

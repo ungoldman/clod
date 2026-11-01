@@ -51,6 +51,7 @@ function renderApp(sessions: Session[], overrides: Partial<AppProps> = {}) {
   const resumed: Session[] = []
   const deleted: string[] = []
   const renamed: [string, string][] = []
+  const saved: string[] = []
   const props: AppProps = {
     loadFirst: () => Promise.resolve(sessions),
     loadRest: null,
@@ -61,9 +62,12 @@ function renderApp(sessions: Session[], overrides: Partial<AppProps> = {}) {
     onRename: async (fp, title) => {
       renamed.push([fp, title])
     },
+    onSaveConfig: async ({ sortMode }) => {
+      saved.push(sortMode)
+    },
     ...overrides
   }
-  return { ...render(h(App, props)), resumed, deleted, renamed }
+  return { ...render(h(App, props)), resumed, deleted, renamed, saved }
 }
 
 test('renders a loading frame, then the session list with a snippet', async () => {
@@ -437,7 +441,7 @@ test('rename: empty and unchanged values confirm without renaming', async () => 
 test('sort cycle reaches directory grouping (headers rendered)', async () => {
   const s1 = mkSession({ sessionId: 's1', title: 'a', cwd: '/proj/one', lastTimestamp: 2 })
   const s2 = mkSession({ sessionId: 's2', title: 'b', cwd: '/proj/two', lastTimestamp: 1 })
-  const { lastFrame, stdin, unmount } = renderApp([s1, s2])
+  const { lastFrame, stdin, saved, unmount } = renderApp([s1, s2])
   await delay()
   stdin.write('s') // recent -> lexic
   await delay(20)
@@ -445,6 +449,7 @@ test('sort cycle reaches directory grouping (headers rendered)', async () => {
   await delay(20)
   assert.match(lastFrame() ?? '', /grouped by directory/)
   assert.match(lastFrame() ?? '', /proj\/one/)
+  assert.deepEqual(saved, ['lexic', 'directory'])
   unmount()
 })
 
