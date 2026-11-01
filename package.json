@@ -8,7 +8,7 @@
   },
   "bugs": "https://github.com/ungoldman/clod/issues",
   "dependencies": {
-    "ink": "^7.1.0",
+    "ink": "^8.0.0",
     "react": "^19.3.0",
     "trash": "^10.1.1"
   },
