@@ -120,9 +120,9 @@ pnpm format     # biome check --write
 ```
 
 Tests use `node:test` and run through Node's type stripping, so no test-runner
-dependency. The parsing, sorting, and stats logic lives in `src/{sessions,list,stats,config}.ts`
-and is held at 100% coverage; the Ink render layer (`src/ui.ts`) is exercised by
-`ink-testing-library` but kept out of the gate.
+dependency. Every module in `src/` is held at 100% coverage except `src/index.ts`
+and `src/trash.ts`, and the Ink render layer (`src/ui.ts`) is driven through
+`ink-testing-library`.
 
 ## Contributing
 
