@@ -69,7 +69,7 @@ clod
 
 Each row: session title · branch · project path · tokens used · context window · time since last activity
 
-The title is the name you gave the session with `/rename` in bold, else Claude Code's generated title, else the opening prompt in dim italic.
+Sessions you've named with `/rename` show that name in bold. Unnamed sessions show the title Claude Code generated, or the opening prompt in dim italic if there isn't one.
 
 `used` is real throughput: tokens processed and generated (input + output +
 cache writes), excluding cache reads. Cache reads re-count the same context
