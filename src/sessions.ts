@@ -1,5 +1,5 @@
 import type { Stats } from 'node:fs'
-import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { processStartedAt } from './proc.ts'
@@ -444,12 +444,14 @@ export async function renameSession(
   const sessionId = basename(filePath, '.jsonl')
   if (await isLive(sessionId)) throw new Error(LIVE)
   // the title file first: if the append then fails, the transcript keeps its old
-  // custom-title, which the picker reads ahead of the file
+  // custom-title, which the picker reads ahead of the file. Modes match Claude
+  // Code's, chmod'd too since a mode option only applies when the path is created.
   const sessionDir = filePath.replace(/\.jsonl$/, '')
+  const titleFile = join(sessionDir, 'custom-title.json')
   await mkdir(sessionDir, { recursive: true, mode: 0o700 })
-  await writeFile(join(sessionDir, 'custom-title.json'), JSON.stringify({ customTitle: title }), {
-    mode: 0o600
-  })
+  await chmod(sessionDir, 0o700)
+  await writeFile(titleFile, JSON.stringify({ customTitle: title }), { mode: 0o600 })
+  await chmod(titleFile, 0o600)
   const records = [
     { type: 'custom-title', customTitle: title, sessionId },
     { type: 'agent-name', agentName: title, sessionId }
@@ -457,10 +459,10 @@ export async function renameSession(
   await appendFile(filePath, records.map((r) => `${JSON.stringify(r)}\n`).join(''))
 }
 
-// Trash everything Claude Code keys by session id, the set its own expiry sweep
-// removes, plus the session's history.jsonl lines. Goes to Trash (recoverable).
-// Skips plans/ and paste-cache/ (shared) and sessions/<pid>.json (ephemeral).
-// An open session would write the transcript back, so it is refused.
+// Trash everything Claude Code keys by session id, plus the session's
+// history.jsonl lines. Goes to Trash (recoverable). Skips plans/ and paste-cache/
+// (shared) and sessions/<pid>.json (ephemeral). An open session would write the
+// transcript back, so it is refused.
 export async function deleteSession(
   filePath: string,
   trashFn: TrashFn = trashPaths,
@@ -472,24 +474,30 @@ export async function deleteSession(
   const sessionId = basename(filePath, '.jsonl')
   if (await isLive(sessionId)) throw new Error(LIVE)
   const dir = claudeDir()
-  const stem = filePath.replace(/\.jsonl$/, '')
+  const projectDir = dirname(filePath)
   const candidates = [
-    filePath,
-    stem, // sibling dir (e.g. subagent transcripts, custom-title.json, keyed recordings)
-    ...['ccr-tip.json', 'precompact.json', 'desktop-released.json'].map((ext) => `${stem}.${ext}`),
     join(dir, 'tasks', sessionId),
     join(dir, 'file-history', sessionId),
     join(dir, 'session-env', sessionId),
     join(dir, 'uploads', sessionId),
     join(dir, 'debug', `${sessionId}.txt`),
-    join(tmpDir, basename(dirname(filePath)), sessionId)
+    join(tmpDir, basename(projectDir), sessionId)
   ]
 
-  // recordings (<id>-<stamp>.cast) and telemetry are keyed by a filename prefix
-  for (const name of await readdir(dirname(filePath))) {
-    if (name.startsWith(`${sessionId}-`) && name.endsWith('.cast'))
-      candidates.push(join(dirname(filePath), name))
-  }
+  // In the project dir, the transcript, its same-named dir, and every sidecar
+  // (<id>.jsonl.superseded-*, <id>.ccr-tip.json, <id>-<stamp>.cast, ...) share the
+  // id as a prefix, and a uuid can't prefix another session's.
+  try {
+    for (const name of await readdir(projectDir)) {
+      if (
+        name === sessionId ||
+        name.startsWith(`${sessionId}.`) ||
+        name.startsWith(`${sessionId}-`)
+      )
+        candidates.push(join(projectDir, name))
+    }
+  } catch {}
+  // telemetry is keyed by a filename prefix too
   const telemetryDir = join(dir, 'telemetry')
   try {
     const prefix = `1p_failed_events.${sessionId}.`

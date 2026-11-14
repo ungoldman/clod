@@ -431,6 +431,12 @@ test('renameSession: appends custom-title and agent-name records, parseSession p
       cwd: '/home/u/proj'
     }
   ])
+  // a title file left looser by an older clod, tightened to Claude Code's modes
+  const sessionDir = file.replace(/\.jsonl$/, '')
+  await mkdir(sessionDir, { mode: 0o755 })
+  await writeFile(join(sessionDir, 'custom-title.json'), '{"customTitle":"old name"}', {
+    mode: 0o644
+  })
 
   await renameSession(file, 'new name')
 
@@ -444,9 +450,11 @@ test('renameSession: appends custom-title and agent-name records, parseSession p
   )
 
   assert.equal(
-    await readFile(join(file.replace(/\.jsonl$/, ''), 'custom-title.json'), 'utf8'),
+    await readFile(join(sessionDir, 'custom-title.json'), 'utf8'),
     '{"customTitle":"new name"}'
   )
+  assert.equal((await stat(sessionDir)).mode & 0o777, 0o700)
+  assert.equal((await stat(join(sessionDir, 'custom-title.json'))).mode & 0o777, 0o600)
 
   const s = await parseSession(file, await stat(file))
   assert.ok(s)
@@ -468,8 +476,10 @@ test('deleteSession: trashes all keyed artifacts and scrubs history', async () =
     for (const ext of ['ccr-tip.json', 'precompact.json', 'desktop-released.json']) {
       await writeFile(join(proj, `sid.${ext}`), '{}')
     }
+    await writeFile(join(proj, 'sid.jsonl.superseded-1794642254927'), '{}\n')
     await writeFile(join(proj, 'sid-1794642254927.cast'), '')
     await writeFile(join(proj, 'other-1794642254927.cast'), '')
+    await writeFile(join(proj, 'sidx.jsonl'), '{}\n') // shares letters, not the id
     const tmpDir = join(home, 'tmp-claude')
     await mkdir(join(tmpDir, 'p', 'sid'), { recursive: true })
     await mkdir(join(claude, 'debug'), { recursive: true })
@@ -500,8 +510,10 @@ test('deleteSession: trashes all keyed artifacts and scrubs history', async () =
     for (const ext of ['ccr-tip.json', 'precompact.json', 'desktop-released.json']) {
       assert.ok(trashed.includes(join(proj, `sid.${ext}`)))
     }
+    assert.ok(trashed.includes(join(proj, 'sid.jsonl.superseded-1794642254927')))
     assert.ok(trashed.includes(join(proj, 'sid-1794642254927.cast')))
     assert.ok(!trashed.includes(join(proj, 'other-1794642254927.cast')))
+    assert.ok(!trashed.includes(join(proj, 'sidx.jsonl')))
     assert.ok(trashed.includes(join(tmpDir, 'p', 'sid')))
     assert.ok(trashed.includes(join(claude, 'telemetry', '1p_failed_events.sid.1.json')))
     assert.ok(!trashed.includes(join(claude, 'telemetry', '1p_failed_events.other.1.json')))
@@ -520,12 +532,33 @@ test('deleteSession: no telemetry dir, no history file -> single trash call, no 
     await mkdir(proj, { recursive: true })
     const file = join(proj, 'sid.jsonl')
     await writeFile(file, '{}\n')
+    // the default /tmp root, whatever the shell exports
+    const prev = process.env.CLAUDE_CODE_TMPDIR
+    delete process.env.CLAUDE_CODE_TMPDIR
+    try {
+      const trashed: string[] = []
+      await deleteSession(file, async (paths) => {
+        for (const p of Array.isArray(paths) ? paths : [paths]) trashed.push(p)
+      })
+      assert.deepEqual(trashed, [file]) // only the transcript existed; history absent -> no scrub trash
+    } finally {
+      if (prev !== undefined) process.env.CLAUDE_CODE_TMPDIR = prev
+    }
+  })
+})
 
+test('deleteSession: a project dir already swept away still scrubs history', async () => {
+  await withHome(async (home) => {
+    const claude = join(home, '.claude')
+    await mkdir(claude, { recursive: true })
+    const history = join(claude, 'history.jsonl')
+    await writeFile(history, `${JSON.stringify({ sessionId: 'sid' })}\n`)
     const trashed: string[] = []
-    await deleteSession(file, async (paths) => {
+    await deleteSession(join(claude, 'projects', 'gone', 'sid.jsonl'), async (paths) => {
       for (const p of Array.isArray(paths) ? paths : [paths]) trashed.push(p)
     })
-    assert.deepEqual(trashed, [file]) // only the transcript existed; history absent -> no scrub trash
+    assert.equal(await readFile(history, 'utf8'), '')
+    assert.ok(trashed.some((p) => p.includes('history-removed-sid.jsonl')))
   })
 })
 
@@ -535,7 +568,7 @@ test('deleteSession: CLAUDE_CODE_TMPDIR moves the /tmp root, as Claude Code hono
     await mkdir(proj, { recursive: true })
     const file = join(proj, 'sid.jsonl')
     await writeFile(file, '{}\n')
-    const tmpSession = join(home, 'cctmp', `claude-${process.getuid?.() ?? 0}`, 'p', 'sid')
+    const tmpSession = join(home, 'cctmp', `claude-${process.getuid?.()}`, 'p', 'sid')
     await mkdir(tmpSession, { recursive: true })
     const prev = process.env.CLAUDE_CODE_TMPDIR
     process.env.CLAUDE_CODE_TMPDIR = join(home, 'cctmp')

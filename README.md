@@ -62,7 +62,7 @@ clod
 | `r` | Rename selected session (enter confirms, esc cancels; `←`/`→` move the cursor, `alt+←`/`→` jump by word) |
 | `u` | Usage dashboard (token counts) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
-| `D` | Delete (moves to Trash; includes tasks, file-history, session-env, uploads, debug/telemetry, the session's `/tmp` files, and history.jsonl prompt lines) |
+| `D` | Delete (moves to Trash; includes the transcript and every file beside it named for the session, tasks, file-history, session-env, uploads, debug/telemetry, the session's temp files, and history.jsonl prompt lines) |
 | `q` / `esc` | Quit |
 
 Rename and delete refuse a session that is open in a running Claude Code, which would write its own title back or recreate the transcript.
