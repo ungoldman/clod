@@ -55,7 +55,7 @@ const SessionRow = memo(function SessionRow({
   usedWidth: number
   ctxWidth: number
 }) {
-  const { title, titleFallback, branchCol, dirCol, usedCol, ctxCol, timeCol } = computeRowLayout({
+  const { title, titleKind, branchCol, dirCol, usedCol, ctxCol, timeCol } = computeRowLayout({
     session,
     termWidth,
     sortMode,
@@ -73,7 +73,7 @@ const SessionRow = memo(function SessionRow({
       Box,
       {},
       h(Text, hl, '> '),
-      h(Text, { ...hl, bold: !titleFallback, italic: titleFallback }, title),
+      h(Text, { ...hl, bold: titleKind === 'named', italic: titleKind === 'prompt' }, title),
       h(Text, hl, pad(rest, Math.max(0, termWidth - 2 - title.length)))
     )
   }
@@ -82,7 +82,15 @@ const SessionRow = memo(function SessionRow({
     Box,
     { flexDirection: 'row' },
     h(Text, {}, '  '),
-    h(Text, { dimColor: titleFallback, italic: titleFallback }, title),
+    h(
+      Text,
+      {
+        bold: titleKind === 'named',
+        dimColor: titleKind === 'prompt',
+        italic: titleKind === 'prompt'
+      },
+      title
+    ),
     branchCol ? h(Text, { color: 'yellow', dimColor: true }, `  ${branchCol}`) : null,
     dirCol ? h(Text, { color: 'cyan', dimColor: true }, `  ${dirCol}`) : null,
     h(Text, { dimColor: true }, `  ${usedCol}`),
@@ -566,7 +574,12 @@ export default function App({
       if (key.return) {
         const title = rename.value.trim()
         setRename(null)
-        if (current && title && title !== (current.title || 'Untitled')) {
+        // confirming an unchanged auto title keeps it as the user's own
+        if (
+          current &&
+          title &&
+          title !== (current.title || (current.aiTitle ? null : 'Untitled'))
+        ) {
           // update the row in the same frame the input closes
           const updateRow = (s: Session) =>
             s.sessionId === current.sessionId ? { ...s, title } : s
@@ -658,7 +671,7 @@ export default function App({
       onResume(current)
       exit()
     } else if (input === 'r' && current) {
-      setRename(openRename(current.title || 'Untitled'))
+      setRename(openRename(current.title || current.aiTitle || 'Untitled'))
     } else if (input === 'D' && current) setMode('deleting')
     else if (input === 's') {
       const next = nextSortMode(sortMode)

@@ -293,13 +293,19 @@ test('findAdjacentSessionId: prefers below, falls back above, else null', () => 
   assert.equal(findAdjacentSessionId(items, 4, new Set<string>()), null)
 })
 
-test('displayTitle: real title, prompt fallback, neither', () => {
-  const real = mkSession({ title: 'ESLint Ratchet', firstUserMessage: 'ignored' })
-  assert.deepEqual(displayTitle(real), { text: 'ESLint Ratchet', fallback: false })
+test('displayTitle: named title, then auto title, then prompt, then neither', () => {
+  const both = mkSession({
+    title: 'ESLint Ratchet',
+    aiTitle: 'Ratchet lint',
+    firstUserMessage: 'x'
+  })
+  assert.deepEqual(displayTitle(both), { text: 'ESLint Ratchet', kind: 'named' })
+  const auto = mkSession({ title: null, aiTitle: 'Ratchet lint', firstUserMessage: 'ignored' })
+  assert.deepEqual(displayTitle(auto), { text: 'Ratchet lint', kind: 'auto' })
   const prompt = mkSession({ title: null, firstUserMessage: '  wire up\n  the fallback ' })
-  assert.deepEqual(displayTitle(prompt), { text: 'wire up the fallback', fallback: true })
+  assert.deepEqual(displayTitle(prompt), { text: 'wire up the fallback', kind: 'prompt' })
   const bare = mkSession({ title: null, firstUserMessage: null })
-  assert.deepEqual(displayTitle(bare), { text: 'Untitled', fallback: true })
+  assert.deepEqual(displayTitle(bare), { text: 'Untitled', kind: 'prompt' })
 })
 
 test('computeRowLayout: a fallback title yields half the flex to dir and branch', () => {
@@ -315,14 +321,14 @@ test('computeRowLayout: a fallback title yields half the flex to dir and branch'
     session: mkSession({ title: null, firstUserMessage: long, gitBranch: 'main' }),
     ...opts
   })
-  assert.equal(fb.titleFallback, true)
+  assert.equal(fb.titleKind, 'prompt')
   assert.equal(fb.branchCol, 'main')
   assert.equal(fb.dirCol, '/home/u/proj')
   const real = computeRowLayout({
     session: mkSession({ title: long, gitBranch: 'main' }),
     ...opts
   })
-  assert.equal(real.titleFallback, false)
+  assert.equal(real.titleKind, 'named')
   assert.equal(real.branchCol, null)
   assert.equal(real.dirCol, null)
 })

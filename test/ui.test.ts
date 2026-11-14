@@ -438,6 +438,24 @@ test('rename: empty and unchanged values confirm without renaming', async () => 
   unmount()
 })
 
+test('rename: prefills an auto title, and confirming it unchanged keeps it as a name', async () => {
+  const s1 = mkSession({
+    sessionId: 's1',
+    title: null,
+    aiTitle: 'Auto name',
+    filePath: '/tmp/s1.jsonl'
+  })
+  const { lastFrame, stdin, renamed, unmount } = renderApp([s1])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  assert.match(plain(lastFrame()), /> Auto name█/)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.deepEqual(renamed, [['/tmp/s1.jsonl', 'Auto name']])
+  unmount()
+})
+
 test('sort cycle reaches directory grouping (headers rendered)', async () => {
   const s1 = mkSession({ sessionId: 's1', title: 'a', cwd: '/proj/one', lastTimestamp: 2 })
   const s2 = mkSession({ sessionId: 's2', title: 'b', cwd: '/proj/two', lastTimestamp: 1 })
