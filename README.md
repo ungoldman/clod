@@ -62,8 +62,10 @@ clod
 | `r` | Rename selected session (enter confirms, esc cancels; `←`/`→` move the cursor, `alt+←`/`→` jump by word) |
 | `u` | Usage dashboard (token counts) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
-| `D` | Delete (moves to Trash; includes tasks, file-history, session-env, debug/telemetry, and history.jsonl prompt lines) |
+| `D` | Delete (moves to Trash; includes the transcript and every file beside it named for the session, tasks, file-history, session-env, uploads, debug/telemetry, the session's temp files, and history.jsonl prompt lines) |
 | `q` / `esc` | Quit |
+
+Rename and delete refuse a session that is open in a running Claude Code, which would write its own title back or recreate the transcript.
 
 ### What it shows
 
@@ -122,8 +124,8 @@ pnpm format     # biome check --write
 ```
 
 Tests use `node:test` and run through Node's type stripping, so no test-runner
-dependency. Every module in `src/` is held at 100% coverage except `src/index.ts`
-and `src/trash.ts`, and the Ink render layer (`src/ui.ts`) is driven through
+dependency. Every module in `src/` is held at 100% coverage except `src/index.ts`,
+`src/trash.ts`, and `src/proc.ts`, and the Ink render layer (`src/ui.ts`) is driven through
 `ink-testing-library`.
 
 ## Contributing
