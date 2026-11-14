@@ -1,7 +1,8 @@
 import type { Stats } from 'node:fs'
-import { appendFile, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { processStartedAt } from './proc.ts'
 import { trashPaths } from './trash.ts'
 
 export interface TokenUsage {
@@ -77,6 +78,10 @@ interface RawRecord {
 // honors $HOME on posix, read afresh each call.
 const claudeDir = () => join(homedir(), '.claude')
 const projectsDir = () => join(claudeDir(), 'projects')
+// Claude Code's per-session task output and scratchpads, outside ~/.claude.
+// getuid exists on every platform clod runs on (macOS, Linux, WSL).
+const claudeTmpDir = () =>
+  join(process.env.CLAUDE_CODE_TMPDIR || '/tmp', `claude-${process.getuid?.()}`)
 
 // Claude Code injects system content as XML-tagged blocks; any message starting
 // with an opening tag is injected content, not a real user message
@@ -387,11 +392,64 @@ export async function getSessionMessages(filePath: string): Promise<Message[]> {
   }
 }
 
+// Claude Code writes sessions/<pid>.json at startup and rewrites its sessionId on
+// /clear, /resume, and forks. A crash leaves the file behind, so the pid has to be
+// alive and started when the file says: procStart is ps's lstart, in UTC.
+export async function isSessionLive(
+  sessionId: string,
+  startedAt: (pid: number) => Promise<string | null> = processStartedAt
+): Promise<boolean> {
+  const dir = join(claudeDir(), 'sessions')
+  let names: string[]
+  try {
+    names = await readdir(dir)
+  } catch {
+    return false
+  }
+  for (const name of names) {
+    if (!/^\d+\.json$/.test(name)) continue
+    let r: { pid?: number; sessionId?: string; procStart?: string }
+    try {
+      r = JSON.parse(await readFile(join(dir, name), 'utf8'))
+    } catch {
+      continue
+    }
+    if (r.sessionId !== sessionId || !r.pid) continue
+    try {
+      process.kill(r.pid, 0)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EPERM') continue
+    }
+    if (!r.procStart) return true
+    const started = await startedAt(r.pid)
+    // unreadable start time: assume the session is open rather than risk a write
+    if (started === null) return true
+    if (started.split(/\s+/).join(' ') === r.procStart.split(/\s+/).join(' ')) return true
+  }
+  return false
+}
+
+const LIVE = 'session is open in Claude Code'
+
 // Rename by appending the records Claude Code's /rename writes; the last one
 // wins on parse. custom-title feeds the resume picker, agent-name the title
-// shown inside a resumed session.
-export async function renameSession(filePath: string, title: string): Promise<void> {
+// shown inside a resumed session. The picker falls back to custom-title.json
+// when no custom-title sits in the transcript's tail, so it has to match too.
+// An open session would write its own title back over this one.
+export async function renameSession(
+  filePath: string,
+  title: string,
+  isLive: (sessionId: string) => Promise<boolean> = isSessionLive
+): Promise<void> {
   const sessionId = basename(filePath, '.jsonl')
+  if (await isLive(sessionId)) throw new Error(LIVE)
+  // the title file first: if the append then fails, the transcript keeps its old
+  // custom-title, which the picker reads ahead of the file
+  const sessionDir = filePath.replace(/\.jsonl$/, '')
+  await mkdir(sessionDir, { recursive: true, mode: 0o700 })
+  await writeFile(join(sessionDir, 'custom-title.json'), JSON.stringify({ customTitle: title }), {
+    mode: 0o600
+  })
   const records = [
     { type: 'custom-title', customTitle: title, sessionId },
     { type: 'agent-name', agentName: title, sessionId }
@@ -399,25 +457,39 @@ export async function renameSession(filePath: string, title: string): Promise<vo
   await appendFile(filePath, records.map((r) => `${JSON.stringify(r)}\n`).join(''))
 }
 
-// Trash everything Claude Code keys by session id under ~/.claude, plus the
-// session's history.jsonl lines. Goes to Trash (recoverable). Skips plans/ and
-// paste-cache/ (shared) and sessions/<pid>.json (ephemeral).
+// Trash everything Claude Code keys by session id, the set its own expiry sweep
+// removes, plus the session's history.jsonl lines. Goes to Trash (recoverable).
+// Skips plans/ and paste-cache/ (shared) and sessions/<pid>.json (ephemeral).
+// An open session would write the transcript back, so it is refused.
 export async function deleteSession(
   filePath: string,
-  trashFn: TrashFn = trashPaths
+  trashFn: TrashFn = trashPaths,
+  {
+    isLive = isSessionLive,
+    tmpDir = claudeTmpDir()
+  }: { isLive?: (sessionId: string) => Promise<boolean>; tmpDir?: string } = {}
 ): Promise<void> {
   const sessionId = basename(filePath, '.jsonl')
+  if (await isLive(sessionId)) throw new Error(LIVE)
   const dir = claudeDir()
+  const stem = filePath.replace(/\.jsonl$/, '')
   const candidates = [
     filePath,
-    filePath.replace(/\.jsonl$/, ''), // sibling dir (e.g. subagent transcripts)
+    stem, // sibling dir (e.g. subagent transcripts, custom-title.json, keyed recordings)
+    ...['ccr-tip.json', 'precompact.json', 'desktop-released.json'].map((ext) => `${stem}.${ext}`),
     join(dir, 'tasks', sessionId),
     join(dir, 'file-history', sessionId),
     join(dir, 'session-env', sessionId),
-    join(dir, 'debug', `${sessionId}.txt`)
+    join(dir, 'uploads', sessionId),
+    join(dir, 'debug', `${sessionId}.txt`),
+    join(tmpDir, basename(dirname(filePath)), sessionId)
   ]
 
-  // telemetry is keyed by a filename prefix, not an exact path
+  // recordings (<id>-<stamp>.cast) and telemetry are keyed by a filename prefix
+  for (const name of await readdir(dirname(filePath))) {
+    if (name.startsWith(`${sessionId}-`) && name.endsWith('.cast'))
+      candidates.push(join(dirname(filePath), name))
+  }
   const telemetryDir = join(dir, 'telemetry')
   try {
     const prefix = `1p_failed_events.${sessionId}.`

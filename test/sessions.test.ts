@@ -9,6 +9,7 @@ import {
   extractText,
   fmtTokens,
   getSessionMessages,
+  isSessionLive,
   listSessionFiles,
   loadSessions,
   parseSession,
@@ -442,6 +443,11 @@ test('renameSession: appends custom-title and agent-name records, parseSession p
     ]
   )
 
+  assert.equal(
+    await readFile(join(file.replace(/\.jsonl$/, ''), 'custom-title.json'), 'utf8'),
+    '{"customTitle":"new name"}'
+  )
+
   const s = await parseSession(file, await stat(file))
   assert.ok(s)
   assert.equal(s.title, 'new name')
@@ -456,9 +462,16 @@ test('deleteSession: trashes all keyed artifacts and scrubs history', async () =
     await writeFile(file, '{}\n')
     await mkdir(join(proj, 'sid'), { recursive: true }) // sibling dir
     await writeFile(join(proj, 'sid', 'sub.jsonl'), '{}\n')
-    for (const d of ['tasks', 'file-history', 'session-env']) {
+    for (const d of ['tasks', 'file-history', 'session-env', 'uploads']) {
       await mkdir(join(claude, d, 'sid'), { recursive: true })
     }
+    for (const ext of ['ccr-tip.json', 'precompact.json', 'desktop-released.json']) {
+      await writeFile(join(proj, `sid.${ext}`), '{}')
+    }
+    await writeFile(join(proj, 'sid-1794642254927.cast'), '')
+    await writeFile(join(proj, 'other-1794642254927.cast'), '')
+    const tmpDir = join(home, 'tmp-claude')
+    await mkdir(join(tmpDir, 'p', 'sid'), { recursive: true })
     await mkdir(join(claude, 'debug'), { recursive: true })
     await writeFile(join(claude, 'debug', 'sid.txt'), 'log')
     await mkdir(join(claude, 'telemetry'), { recursive: true })
@@ -475,14 +488,21 @@ test('deleteSession: trashes all keyed artifacts and scrubs history', async () =
       for (const p of Array.isArray(paths) ? paths : [paths]) trashed.push(p)
     }
 
-    await deleteSession(file, fakeTrash)
+    await deleteSession(file, fakeTrash, { tmpDir })
 
     assert.ok(trashed.includes(file))
     assert.ok(trashed.includes(join(proj, 'sid')))
     assert.ok(trashed.includes(join(claude, 'tasks', 'sid')))
     assert.ok(trashed.includes(join(claude, 'file-history', 'sid')))
     assert.ok(trashed.includes(join(claude, 'session-env', 'sid')))
+    assert.ok(trashed.includes(join(claude, 'uploads', 'sid')))
     assert.ok(trashed.includes(join(claude, 'debug', 'sid.txt')))
+    for (const ext of ['ccr-tip.json', 'precompact.json', 'desktop-released.json']) {
+      assert.ok(trashed.includes(join(proj, `sid.${ext}`)))
+    }
+    assert.ok(trashed.includes(join(proj, 'sid-1794642254927.cast')))
+    assert.ok(!trashed.includes(join(proj, 'other-1794642254927.cast')))
+    assert.ok(trashed.includes(join(tmpDir, 'p', 'sid')))
     assert.ok(trashed.includes(join(claude, 'telemetry', '1p_failed_events.sid.1.json')))
     assert.ok(!trashed.includes(join(claude, 'telemetry', '1p_failed_events.other.1.json')))
     // history scrubbed to only the surviving line, removed lines trashed
@@ -509,6 +529,29 @@ test('deleteSession: no telemetry dir, no history file -> single trash call, no 
   })
 })
 
+test('deleteSession: CLAUDE_CODE_TMPDIR moves the /tmp root, as Claude Code honors it', async () => {
+  await withHome(async (home) => {
+    const proj = join(home, '.claude', 'projects', 'p')
+    await mkdir(proj, { recursive: true })
+    const file = join(proj, 'sid.jsonl')
+    await writeFile(file, '{}\n')
+    const tmpSession = join(home, 'cctmp', `claude-${process.getuid?.() ?? 0}`, 'p', 'sid')
+    await mkdir(tmpSession, { recursive: true })
+    const prev = process.env.CLAUDE_CODE_TMPDIR
+    process.env.CLAUDE_CODE_TMPDIR = join(home, 'cctmp')
+    try {
+      const trashed: string[] = []
+      await deleteSession(file, async (paths) => {
+        for (const p of Array.isArray(paths) ? paths : [paths]) trashed.push(p)
+      })
+      assert.ok(trashed.includes(tmpSession))
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_CODE_TMPDIR
+      else process.env.CLAUDE_CODE_TMPDIR = prev
+    }
+  })
+})
+
 test('deleteSession: history without the session id is left untouched', async () => {
   await withHome(async (home) => {
     const claude = join(home, '.claude')
@@ -525,6 +568,55 @@ test('deleteSession: history without the session id is left untouched', async ()
     })
     assert.deepEqual(trashed, [file]) // no history-removed trash
     assert.equal(await readFile(history, 'utf8'), `${JSON.stringify({ sessionId: 'other' })}\n`)
+  })
+})
+
+test('rename and delete refuse a session open in Claude Code, touching nothing', async () => {
+  const { file } = await makeFile([{ type: 'user', message: { role: 'user', content: 'hi' } }])
+  const before = await readFile(file, 'utf8')
+  const live = async () => true
+  await assert.rejects(renameSession(file, 'new', live), /session is open in Claude Code/)
+  await assert.rejects(
+    deleteSession(file, async () => assert.fail('trashed'), { isLive: live }),
+    /session is open in Claude Code/
+  )
+  assert.equal(await readFile(file, 'utf8'), before)
+})
+
+test('isSessionLive: a live pid with a matching start time, crash leftovers ignored', async () => {
+  await withHome(async (home) => {
+    assert.equal(await isSessionLive('sid'), false) // no sessions dir
+    const dir = join(home, '.claude', 'sessions')
+    await mkdir(dir, { recursive: true })
+    const rec = (pid: number, o: Record<string, unknown> = {}) =>
+      writeFile(join(dir, `${pid}.json`), JSON.stringify({ pid, sessionId: 'sid', ...o }))
+    await writeFile(join(dir, 'notes.json'), '{}') // not a pid file
+    await writeFile(join(dir, '7.json'), '{') // unreadable
+    await rec(8, { sessionId: 'other' })
+    await rec(2 ** 31 - 2) // crashed: no such process
+    const started = async () => 'Sat Nov  14 07:44:14 2026'
+    assert.equal(await isSessionLive('sid', started), false)
+
+    // pid reused by another process: start time differs
+    await rec(process.pid, { procStart: 'Fri Nov 13 01:00:00 2026' })
+    assert.equal(await isSessionLive('sid', started), false)
+    // same process, whitespace differs between ps and the file
+    await rec(process.pid, { procStart: 'Sat Nov 14 07:44:14 2026' })
+    assert.equal(await isSessionLive('sid', started), true)
+    // start time unreadable: treat as open
+    assert.equal(await isSessionLive('sid', async () => null), true)
+    // no procStart recorded: the live pid is enough
+    await rec(process.pid)
+    assert.equal(await isSessionLive('sid', started), true)
+  })
+})
+
+test('isSessionLive: a pid owned by another user (EPERM) still counts as alive', async () => {
+  await withHome(async (home) => {
+    const dir = join(home, '.claude', 'sessions')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, '1.json'), JSON.stringify({ pid: 1, sessionId: 'sid' }))
+    assert.equal(await isSessionLive('sid'), true)
   })
 })
 
