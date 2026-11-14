@@ -24,10 +24,15 @@ export function padLeft(str: string, len: number): string {
   return str.length >= len ? str.slice(0, len) : ' '.repeat(len - str.length) + str
 }
 
-export function displayTitle(session: Session): { text: string; fallback: boolean } {
-  if (session.title) return { text: session.title, fallback: false }
+// named: the user's /rename, auto: the tool's generated title, prompt: neither
+export function displayTitle(session: Session): {
+  text: string
+  kind: 'named' | 'auto' | 'prompt'
+} {
+  if (session.title) return { text: session.title, kind: 'named' }
+  if (session.aiTitle) return { text: session.aiTitle, kind: 'auto' }
   const prompt = session.firstUserMessage?.replace(/\s+/g, ' ').trim()
-  return { text: prompt || 'Untitled', fallback: true }
+  return { text: prompt || 'Untitled', kind: 'prompt' }
 }
 
 // subsequence fuzzy match: query chars must appear in order, case-insensitive
@@ -45,8 +50,8 @@ export function fuzzyMatch(query: string, target: string): boolean {
 // Title matches fuzzy (it's short); content matches by substring (fuzzy over a
 // long blob hits everything).
 export function sessionMatches(query: string, session: Session): boolean {
-  const { text, fallback } = displayTitle(session)
-  if ((!fallback || text === 'Untitled') && fuzzyMatch(query, text)) return true
+  const { text, kind } = displayTitle(session)
+  if ((kind !== 'prompt' || text === 'Untitled') && fuzzyMatch(query, text)) return true
   return session.searchText ? session.searchText.includes(query.toLowerCase()) : false
 }
 
@@ -73,9 +78,10 @@ export function computeRowLayout(opts: {
 
   // flex = space for title + branch + dir after the fixed right block
   // (used/ctx/time + three 2-space gaps).
-  const { text: fullTitle, fallback } = displayTitle(session)
+  const { text: fullTitle, kind } = displayTitle(session)
   const flex = termWidth - 2 - usedWidth - ctxWidth - timeWidth - 6
-  const claim = fallback ? Math.min(fullTitle.length, Math.floor(flex / 2)) : fullTitle.length
+  const claim =
+    kind === 'prompt' ? Math.min(fullTitle.length, Math.floor(flex / 2)) : fullTitle.length
   let avail = flex - claim
 
   let dirWidth = 0
@@ -96,7 +102,7 @@ export function computeRowLayout(opts: {
 
   return {
     title: pad(truncate(fullTitle, titleWidth), titleWidth),
-    titleFallback: fallback,
+    titleKind: kind,
     branchCol: branchWidth > 0 ? truncate(naturalBranch, branchWidth) : null,
     dirCol: dirWidth > 0 ? truncate(pathStr, dirWidth) : null,
     usedCol: padLeft(usedStr(session), usedWidth),

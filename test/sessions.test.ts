@@ -211,7 +211,9 @@ test('parseSession: injected/meta/tool/system/attachment/malformed lines and arr
     { type: 'attachment', timestamp: '2026-01-01T00:01:20Z' },
     '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"broken',
     { type: 'custom-title', sessionId: 'x' }, // no customTitle
-    '{"type":"custom-title","customTitle":'
+    '{"type":"custom-title","customTitle":',
+    { type: 'ai-title', sessionId: 'x' }, // no aiTitle
+    '{"type":"ai-title","aiTitle":'
   ])
   const s = await parseSession(file, st)
   assert.ok(s)
@@ -219,6 +221,22 @@ test('parseSession: injected/meta/tool/system/attachment/malformed lines and arr
   assert.equal(s.title, null)
   assert.equal(s.lastUserMessage, 'real question')
   assert.equal(s.searchText, 'real question')
+})
+
+test('parseSession: ai-title and custom-title land in separate fields', async () => {
+  const user = { type: 'user', message: { role: 'user', content: 'hi' }, cwd: '/p/t' }
+  const ai = { type: 'ai-title', aiTitle: 'Auto name', sessionId: 'sid' }
+  const custom = { type: 'custom-title', customTitle: 'My name', sessionId: 'sid' }
+
+  const a = await makeFile([user, ai])
+  const only = await parseSession(a.file, a.stat)
+  assert.equal(only?.title, null)
+  assert.equal(only?.aiTitle, 'Auto name')
+
+  const b = await makeFile([custom, user, ai])
+  const both = await parseSession(b.file, b.stat)
+  assert.equal(both?.title, 'My name')
+  assert.equal(both?.aiTitle, 'Auto name')
 })
 
 test('parseSession: cwd set but no timestamp falls back to mtime; file without trailing newline', async () => {
