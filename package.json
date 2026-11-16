@@ -1,6 +1,6 @@
 {
   "name": "@hype/clod",
-  "description": "Terminal UI for managing Claude Code sessions.",
+  "description": "Terminal UI for managing Claude Code and omp sessions.",
   "version": "1.3.2",
   "author": "Nate Goldman <ungoldman@gmail.com>",
   "bin": {
@@ -10,6 +10,7 @@
   "dependencies": {
     "ink": "^8.0.0",
     "react": "^19.3.0",
+    "string-width": "^8.3.0",
     "trash": "^10.1.1"
   },
   "devDependencies": {
@@ -31,6 +32,7 @@
     "claude-code",
     "cli",
     "ink",
+    "omp",
     "sessions",
     "tui"
   ],

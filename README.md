@@ -4,7 +4,7 @@
 
 # clod
 
-Terminal UI for managing Claude Code sessions.
+Terminal UI for managing Claude Code and omp sessions.
 
 [![npm][npm-image]][npm-url]
 [![build][build-image]][build-url]
@@ -16,7 +16,7 @@ Terminal UI for managing Claude Code sessions.
 
 </div>
 
-Browse, search, preview, resume, rename, and delete any session from any directory.
+Browse, search, preview, resume, rename, and delete any session from any directory. Sessions from [Claude Code](https://github.com/anthropics/claude-code) and [omp](https://github.com/can1357/oh-my-pi) share one list.
 
 ![clod session list](images/demo.png)
 
@@ -27,7 +27,7 @@ Like `claude -r` but better.
 **Requirements:**
 
 - Node 22+
-- Claude Code CLI (`claude`) on PATH for resume
+- Claude Code (`claude`) or omp (`omp`) on PATH to resume its sessions
 
 Install globally via your node package manager of choice:
 
@@ -62,16 +62,28 @@ clod
 | `r` | Rename selected session (enter confirms, esc cancels; `←`/`→` move the cursor, `alt+←`/`→` jump by word) |
 | `u` | Usage dashboard (token counts) |
 | `s` | Cycle sort: recent → lexicographic → by directory |
-| `D` | Delete (moves to Trash; includes the transcript and every file beside it named for the session, tasks, file-history, session-env, uploads, debug/telemetry, the session's temp files, and history.jsonl prompt lines) |
+| `h` | Cycle harness filter: all → Claude Code → omp |
+| `D` | Delete (moves to Trash, see [What delete removes](#what-delete-removes)) |
 | `q` / `esc` | Quit |
 
-Rename and delete refuse a session that is open in a running Claude Code, which would write its own title back or recreate the transcript.
+Rename and delete refuse a session that is open in a running Claude Code or omp, which would write its own title back or recreate the transcript. An omp left idle in a terminal counts as open too.
+
+### What delete removes
+
+Delete matches what each tool removes for its own sessions, and moves everything to Trash.
+
+- **Claude Code:** the transcript and every file beside it named for the session, tasks, file-history, session-env, uploads, debug and telemetry files, the session's temp files, and its `history.jsonl` prompt lines.
+- **omp:** the transcript, its artifact directory, any `.bak` copies, and the session's title and recap rows in `history.db`. Prompt history stays, as it does when omp deletes a session.
 
 ### What it shows
 
-Each row: session title · branch · project path · tokens used · context window · time since last activity
+Each row: harness · session title · branch · project path · tokens used · context window · time since last activity
 
-Sessions you've named with `/rename` show that name in bold. Unnamed sessions show the title Claude Code generated, or the opening prompt in dim italic if there isn't one.
+The first column marks the harness, `✻` for Claude Code and `π` for omp. It turns bright green while that tool has the session open.
+
+Sessions you've named with `/rename` show that name in bold. Unnamed sessions show the title the tool generated, or the opening prompt in dim italic if there isn't one. omp's generated titles drop their leading Nerd Font icon so they sort with everything else.
+
+omp doesn't record a git branch, so `clod` reads it from the repo's HEAD reflog as of the session's last activity. The branch is blank when the reflog can't answer, for example after a worktree is removed.
 
 `used` is real throughput: tokens processed and generated (input + output +
 cache writes), excluding cache reads. Cache reads re-count the same context
@@ -84,7 +96,7 @@ Bottom bar: last user message from the selected session.
 
 ### Dashboard
 
-Press `u` for an aggregate view across all sessions: total throughput, a token
+Press `u` for an aggregate view across the sessions in the list, so `h` narrows it to one harness: total throughput, a token
 breakdown by type (input / output / cache write / cache read), a 30-day
 throughput-per-day sparkline, a per-model breakdown, and top projects by
 throughput. The cache-inclusive grand total is shown alongside the headline so
@@ -95,11 +107,11 @@ recorded token counts, no estimation.
 
 ### How it works
 
-Claude Code stores all session files in `~/.claude/projects/`, regardless of which directory the session was started in. `clod` reads from there directly. No home directory scanning.
+Claude Code stores all session files in `~/.claude/projects/`, and omp stores its own in `~/.omp/agent/sessions/` (or under `$PI_CODING_AGENT_DIR` when set), regardless of which directory the session was started in. `clod` reads from there directly. No home directory scanning.
 
 ### Maintenance
 
-`scripts/cleanup.js` trashes orphaned session artifacts under `~/.claude`
+`scripts/cleanup.js` trashes orphaned Claude Code session artifacts under `~/.claude`
 (file-history, session-env, tasks, telemetry, and stale `history.jsonl` lines
 for sessions with no transcript left). Dry-run by default; `--apply` to act.
 Per-session delete already covers these, so this is only for backlog from

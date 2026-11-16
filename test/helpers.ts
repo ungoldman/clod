@@ -3,6 +3,7 @@ import type { Session } from '../src/sessions.ts'
 // A fully-populated Session with sane defaults; override any field per test.
 export function mkSession(o: Partial<Session> = {}): Session {
   return {
+    harness: 'claude',
     sessionId: 'sid',
     title: 'a title',
     aiTitle: null,

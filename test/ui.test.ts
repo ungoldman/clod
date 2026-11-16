@@ -56,15 +56,17 @@ function renderApp(sessions: Session[], overrides: Partial<AppProps> = {}) {
     loadFirst: () => Promise.resolve(sessions),
     loadRest: null,
     onResume: (s) => resumed.push(s),
-    onDelete: async (fp) => {
-      deleted.push(fp)
+    onDelete: async (s) => {
+      deleted.push(s.filePath)
     },
-    onRename: async (fp, title) => {
-      renamed.push([fp, title])
+    onRename: async (s, title) => {
+      renamed.push([s.filePath, title])
+      return title
     },
     onSaveConfig: async ({ sortMode }) => {
       saved.push(sortMode)
     },
+    loadLive: async () => new Set(),
     ...overrides
   }
   return { ...render(h(App, props)), resumed, deleted, renamed, saved }
@@ -296,7 +298,7 @@ test('rename: r opens input prefilled with the title, enter confirms', async () 
   await delay()
   stdin.write('r')
   await delay(20)
-  assert.match(lastFrame() ?? '', /> old█/)
+  assert.match(lastFrame() ?? '', />✻ old█/)
   assert.match(lastFrame() ?? '', /enter confirm {2}esc cancel/)
   for (const c of 'er') stdin.write(c)
   await delay(20)
@@ -348,11 +350,11 @@ test('rename: esc discards, backspace edits, null title prefills Untitled', asyn
   await delay()
   stdin.write('r')
   await delay(20)
-  assert.match(lastFrame() ?? '', /> Untitled█/)
+  assert.match(lastFrame() ?? '', />✻ Untitled█/)
   stdin.write(KEY.backspace)
   stdin.write('\x01') // ctrl char: ignored as input
   await delay(20)
-  assert.match(lastFrame() ?? '', /> Untitle█/)
+  assert.match(lastFrame() ?? '', />✻ Untitle█/)
   stdin.write(KEY.esc)
   await delay(20)
   assert.equal(renamed.length, 0)
@@ -373,20 +375,20 @@ test('rename: arrows move the cursor, typing and backspace act at it', async () 
   await delay(20)
   stdin.write('X') // insert at the cursor, not append
   await delay(20)
-  assert.match(plain(lastFrame()), /> old naXme/)
+  assert.match(plain(lastFrame()), />✻ old naXme/)
   stdin.write(KEY.right) // step over the m
   await delay(20)
   stdin.write(KEY.backspace) // delete at the cursor, not the end
   await delay(20)
-  assert.match(plain(lastFrame()), /> old naXe/)
+  assert.match(plain(lastFrame()), />✻ old naXe/)
   for (let i = 0; i < 10; i++) stdin.write(KEY.left) // past the start: clamped
   await delay(20)
   stdin.write('Y')
   await delay(20)
-  assert.match(plain(lastFrame()), /> Yold naXe/)
+  assert.match(plain(lastFrame()), />✻ Yold naXe/)
   for (let i = 0; i < 12; i++) stdin.write(KEY.right) // past the end: clamped
   await delay(20)
-  assert.match(plain(lastFrame()), /> Yold naXe█/)
+  assert.match(plain(lastFrame()), />✻ Yold naXe█/)
   unmount()
 })
 
@@ -400,23 +402,23 @@ test('rename: alt+arrows jump the cursor to word starts, in both encodings', asy
   await delay(20)
   stdin.write('X')
   await delay(20)
-  assert.match(plain(lastFrame()), /> one Xtwo/)
+  assert.match(plain(lastFrame()), />✻ one Xtwo/)
   stdin.write(KEY.optLeft) // start of "Xtwo"
   stdin.write(KEY.optLeft) // start of "one"
   stdin.write(KEY.optLeft) // already at the first word: clamped
   await delay(20)
   stdin.write('Y')
   await delay(20)
-  assert.match(plain(lastFrame()), /> Yone Xtwo/)
+  assert.match(plain(lastFrame()), />✻ Yone Xtwo/)
   stdin.write(KEY.optRight) // start of "Xtwo"
   await delay(20)
   stdin.write('Z')
   await delay(20)
-  assert.match(plain(lastFrame()), /> Yone ZXtwo/)
+  assert.match(plain(lastFrame()), />✻ Yone ZXtwo/)
   stdin.write(KEY.altRight) // no next word: lands at the end
   stdin.write(KEY.altRight) // clamped there
   await delay(20)
-  assert.match(plain(lastFrame()), /> Yone ZXtwo█/)
+  assert.match(plain(lastFrame()), />✻ Yone ZXtwo█/)
   unmount()
 })
 
@@ -449,7 +451,7 @@ test('rename: prefills an auto title, and confirming it unchanged keeps it as a 
   await delay()
   stdin.write('r')
   await delay(20)
-  assert.match(plain(lastFrame()), /> Auto name█/)
+  assert.match(plain(lastFrame()), />✻ Auto name█/)
   stdin.write(KEY.enter)
   await delay(20)
   assert.deepEqual(renamed, [['/tmp/s1.jsonl', 'Auto name']])
@@ -647,7 +649,7 @@ test('rename: a null-title session renames to a real title and persists', async 
   await delay()
   stdin.write('r')
   await delay(20)
-  assert.match(lastFrame() ?? '', /> Untitled█/)
+  assert.match(lastFrame() ?? '', />✻ Untitled█/)
   for (let i = 0; i < 8; i++) stdin.write(KEY.backspace) // clear "Untitled"
   await delay(20)
   for (const c of 'named') stdin.write(c)
@@ -747,12 +749,12 @@ test('a session with no custom title falls back to its opening prompt', async ()
     mkSession({ sessionId: 'b', title: null, firstUserMessage: 'and now the tests' })
   ])
   await delay()
-  assert.match(plain(lastFrame()), /> wire up the fallback/)
+  assert.match(plain(lastFrame()), />✻ wire up the fallback/)
   assert.match(plain(lastFrame()), /and now the tests/)
   assert.doesNotMatch(plain(lastFrame()), /Untitled/)
   stdin.write(KEY.down)
   await delay()
-  assert.match(plain(lastFrame()), /> and now the tests/)
+  assert.match(plain(lastFrame()), />✻ and now the tests/)
   cleanup()
 })
 
@@ -776,5 +778,137 @@ test('preview: scrolling past the top does not bank presses the next down spends
   stdin.write(KEY.down)
   await delay(20)
   assert.doesNotMatch(plain(lastFrame()), /line 00/)
+  unmount()
+})
+
+test('rows carry their harness glyph; h cycles the harness filter through the header', async () => {
+  const { lastFrame, stdin, unmount } = renderApp([
+    mkSession({ sessionId: 'c', title: 'claude row', lastTimestamp: 2 }),
+    mkSession({ sessionId: 'o', harness: 'omp', title: 'omp row', lastTimestamp: 1 })
+  ])
+  await delay()
+  let f = plain(lastFrame())
+  assert.match(f, /2 sessions │ all harnesses │/)
+  assert.match(f, />✻ claude row/)
+  assert.match(f, / π omp row/)
+  stdin.write('h')
+  await delay(20)
+  f = plain(lastFrame())
+  assert.match(f, /1 sessions │ Claude Code │/)
+  assert.doesNotMatch(f, /omp row/)
+  stdin.write('h')
+  await delay(20)
+  f = plain(lastFrame())
+  assert.match(f, /1 sessions │ omp │/)
+  assert.match(f, />π omp row/) // the selection moves to the first shown row
+  assert.doesNotMatch(f, /claude row/)
+  stdin.write('u')
+  await delay(20)
+  assert.match(plain(lastFrame()), /1 sessions/) // usage counts only the filtered harness
+  stdin.write('q')
+  await delay(20)
+  stdin.write('h')
+  await delay(20)
+  assert.match(plain(lastFrame()), /2 sessions │ all harnesses │/)
+  unmount()
+})
+
+test('rename edits an astral title by code point, never splitting a surrogate pair', async () => {
+  const { lastFrame, stdin, renamed, unmount } = renderApp([
+    mkSession({ harness: 'omp', title: null, aiTitle: '󰚰 X' })
+  ])
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  assert.match(plain(lastFrame()), />π 󰚰 X█/)
+  stdin.write(KEY.left)
+  stdin.write(KEY.left)
+  await delay(20)
+  stdin.write(KEY.backspace) // the cursor sits after the icon: deletes all of it
+  await delay(20)
+  assert.match(plain(lastFrame()), />π {2}X/)
+  stdin.write(KEY.enter)
+  await delay(20)
+  assert.deepEqual(
+    renamed.map(([, t]) => t),
+    ['X']
+  )
+  unmount()
+})
+
+test('open sessions are read after load and on an interval; a failed read is ignored', async () => {
+  const calls: number[] = []
+  let fail = false
+  const { lastFrame, stdin, unmount } = renderApp(
+    [
+      mkSession({ sessionId: 'a', title: 'open one' }),
+      mkSession({ sessionId: 'b', title: 'closed' })
+    ],
+    {
+      liveRefreshMs: 30,
+      loadLive: async (sessions) => {
+        calls.push(sessions.length)
+        if (fail) throw new Error('probe broke')
+        return new Set(['a', 'b'])
+      }
+    }
+  )
+  await delay()
+  assert.ok(calls.length >= 2) // first read plus at least one tick
+  assert.equal(calls[0], 2)
+  assert.match(plain(lastFrame()), />✻ open one/)
+  assert.match(plain(lastFrame()), / ✻ closed/)
+  fail = true
+  await delay()
+  assert.match(plain(lastFrame()), /open one/)
+  stdin.write(KEY.down)
+  await delay(20)
+  unmount()
+  const after = calls.length
+  await delay()
+  assert.equal(calls.length, after) // the interval stops with the app
+})
+
+test('a live read that lands after unmount is dropped', async () => {
+  let resolve: (s: Set<string>) => void = () => {}
+  const { unmount } = renderApp([mkSession()], {
+    loadLive: () => new Promise((r) => (resolve = r))
+  })
+  await delay()
+  unmount()
+  resolve(new Set(['sid']))
+  await delay(20)
+})
+
+test('rename shows the title as the harness stored it', async () => {
+  const { lastFrame, stdin, unmount } = renderApp(
+    [mkSession({ title: 'old' }), mkSession({ sessionId: 'other', title: 'untouched' })],
+    { onRename: async () => 'cut by the harness' }
+  )
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  stdin.write('x')
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(40)
+  assert.match(plain(lastFrame()), /cut by the harness/)
+  assert.match(plain(lastFrame()), /untouched/)
+  unmount()
+})
+
+test('width counts terminal cells: emoji and CJK take two, Nerd Font icons one', async () => {
+  const { lastFrame, unmount } = renderApp([
+    mkSession({ sessionId: 'e', title: '🚀 漢 deploy', lastTimestamp: 2 }),
+    mkSession({ sessionId: 'n', harness: 'omp', title: '󰚰 icon', lastTimestamp: 1 })
+  ])
+  await delay()
+  const rows = plain(lastFrame())
+    .split('\n')
+    .filter((l) => /deploy|icon/.test(l))
+  assert.equal(rows.length, 2)
+  // both rows end in the same column, which they only do when widths are right
+  const { default: stringWidth } = await import('string-width')
+  assert.equal(stringWidth(rows[0].trimEnd()), stringWidth(rows[1].trimEnd()))
   unmount()
 })

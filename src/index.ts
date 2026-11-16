@@ -1,7 +1,10 @@
 #!/usr/bin/env node
+import { join } from 'node:path'
 import { helpText, parseArgs, readPackage } from './cli.ts'
 import { loadConfig } from './config.ts'
-import { listSessionFiles, parseSessions, type Session } from './sessions.ts'
+import { harnessOf, listSessionFiles, parseSessions } from './harnesses/index.ts'
+import { agentDir } from './harnesses/omp.ts'
+import { type Session, shortPath } from './sessions.ts'
 
 const action = parseArgs(process.argv.slice(2))
 
@@ -21,7 +24,9 @@ const FIRST_BATCH = 40
 const files = await listSessionFiles()
 
 if (files.length === 0) {
-  console.log('No Claude sessions found in ~/.claude/projects')
+  console.log(
+    `No sessions found in ~/.claude/projects or ${shortPath(join(agentDir(), 'sessions'))}`
+  )
   process.exit(0)
 }
 
@@ -60,7 +65,8 @@ process.stdout.write('\x1b[?1049l') // restore normal screen
 const target = resume.target
 if (target) {
   const { spawnSync } = await import('node:child_process')
-  spawnSync('claude', ['--resume', target.sessionId], {
+  const { command, args } = harnessOf(target).resume(target)
+  spawnSync(command, args, {
     stdio: 'inherit',
     cwd: target.cwd
   })
