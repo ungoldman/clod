@@ -19,7 +19,8 @@ import {
   parseSession,
   quietSqlite,
   renameSession,
-  serializeSlot
+  serializeSlot,
+  stripIcon
 } from '../src/harnesses/omp.ts'
 import type { Session } from '../src/sessions.ts'
 
@@ -128,7 +129,7 @@ test('parse: slot title, usage, ctx, and the active branch of a fork', async () 
   assert.equal(s.harness, 'omp')
   assert.equal(s.sessionId, '01a1-full-id')
   assert.equal(s.title, null)
-  assert.equal(s.aiTitle, '󰚰 CLOD: work')
+  assert.equal(s.aiTitle, 'CLOD: work') // the leading Nerd Font icon is dropped
   assert.equal(s.cwd, '/nowhere/repo')
   assert.equal(s.gitBranch, null) // not a repo
   assert.equal(s.firstUserMessage, 'first ask')
@@ -163,6 +164,20 @@ test('parse: a user title, a sourceless slot, and an empty slot', async () => {
   assert.equal(empty?.firstUserMessage, null)
   assert.equal(empty?.contextTokens, null)
   assert.equal(empty?.lastTimestamp, (await stat(empty.filePath)).mtimeMs) // no timestamps at all
+})
+
+test('stripIcon drops only leading Private Use Area icons; an icon-only title is no title', async () => {
+  assert.equal(stripIcon('󰚰 CLOD: work'), 'CLOD: work')
+  assert.equal(stripIcon('\uE0A0\u{10FFFD}  two icons'), 'two icons')
+  assert.equal(stripIcon('plain 󰚰 inside'), 'plain 󰚰 inside')
+  assert.equal(stripIcon('🚀 emoji stays'), '🚀 emoji stays')
+  const iconOnly = await parse([slot('󰚰', 'user'), header({ title: '󰚰 hdr' })])
+  assert.equal(iconOnly?.title, null)
+  assert.equal(iconOnly?.aiTitle, 'hdr') // the slot had nothing left, so the header's title shows
+  assert.equal(
+    (await parse([header({ title: '󱁻 OMP: legacy', titleSource: 'user' })]))?.title,
+    'OMP: legacy'
+  )
 })
 
 test('parse: a legacy slotless file reads the header title; a second header is ignored', async () => {

@@ -113,6 +113,11 @@ function addUsage(acc: Record<string, TokenUsage>, model: string | undefined, u:
   acc[key].cacheWrite += u.cacheWrite || 0
 }
 
+// omp's generated titles lead with a Nerd Font icon from the Private Use Areas.
+// clod drops it: it sorts ahead of every letter and reads as noise in a list.
+export const stripIcon = (title: string): string =>
+  title.replace(/^[\u{E000}-\u{F8FF}\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]+\s*/u, '')
+
 // Everything clod shows from one transcript. Tool results are most of the bytes
 // and carry nothing clod shows, so they only get their tree links read.
 async function readTranscript(filePath: string) {
@@ -151,17 +156,19 @@ async function readTranscript(filePath: string) {
     }
     if (i === 0 && r.type === 'title') {
       // source "user" is a rename, "auto" (or none, from older omp) is generated
-      if (r.title) {
-        if (r.source === 'user') title = r.title
-        else aiTitle = r.title
+      const shown = r.title ? stripIcon(r.title) : ''
+      if (shown) {
+        if (r.source === 'user') title = shown
+        else aiTitle = shown
       }
       continue
     }
     if (r.type === 'session') {
       header ??= r
-      if (r.title && !title && !aiTitle) {
-        if (r.titleSource === 'user') title = r.title
-        else aiTitle = r.title
+      const shown = r.title ? stripIcon(r.title) : ''
+      if (shown && !title && !aiTitle) {
+        if (r.titleSource === 'user') title = shown
+        else aiTitle = shown
       }
       continue
     }
