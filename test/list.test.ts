@@ -26,17 +26,22 @@ test('truncate', () => {
   assert.equal(truncate('', 5), '')
   assert.equal(truncate('abc', 5), 'abc')
   assert.equal(truncate('abcdef', 4), 'abc…')
+  assert.equal(truncate('漢漢漢', 4), '漢…') // a wide character never splits the limit
+  assert.equal(truncate('󰚰 ab', 4), '󰚰 ab') // a Nerd Font icon is one cell
 })
 
 test('pad', () => {
   assert.equal(pad('ab', 5), 'ab   ')
   assert.equal(pad('abcdef', 3), 'abc')
   assert.equal(pad('abc', 3), 'abc')
+  assert.equal(pad('🚀x', 4), '🚀x ')
+  assert.equal(pad('a🚀', 2), 'a ') // the cut emoji's cell is padded, not overflowed
 })
 
 test('padLeft', () => {
   assert.equal(padLeft('ab', 5), '   ab')
   assert.equal(padLeft('abcdef', 3), 'abc')
+  assert.equal(padLeft('漢', 3), ' 漢')
 })
 
 test('fuzzyMatch', () => {

@@ -1,3 +1,4 @@
+import stringWidth from 'string-width'
 import type { SortMode } from './config.ts'
 import { fmtTokens, relativeTime, type Session, shortPath } from './sessions.ts'
 
@@ -12,11 +13,22 @@ export const BRANCH_MIN = 8
 export const DIR_MIN = 10
 export const GUTTER = 3
 
-// Columns are counted in code points, so an astral character (omp's Nerd Font
-// title icons) takes the one cell a terminal gives it, not two.
-export const width = (str: string): number => [...str].length
+// Columns are terminal cells, as ink measures them: an emoji or CJK character
+// takes two, omp's Nerd Font title icons one.
+export const width = (str: string): number => stringWidth(str)
 
-const slice = (str: string, n: number): string => [...str].slice(0, n).join('')
+// The longest prefix that fits in n cells, whole characters only.
+function slice(str: string, n: number): string {
+  let out = ''
+  let w = 0
+  for (const ch of str) {
+    const cw = stringWidth(ch)
+    if (w + cw > n) break
+    out += ch
+    w += cw
+  }
+  return out
+}
 
 export function truncate(str: string | null | undefined, max: number): string {
   if (!str) return ''
@@ -24,13 +36,13 @@ export function truncate(str: string | null | undefined, max: number): string {
 }
 
 export function pad(str: string, len: number): string {
-  const w = width(str)
-  return w >= len ? slice(str, len) : str + ' '.repeat(len - w)
+  const cut = width(str) > len ? slice(str, len) : str
+  return cut + ' '.repeat(len - width(cut))
 }
 
 export function padLeft(str: string, len: number): string {
-  const w = width(str)
-  return w >= len ? slice(str, len) : ' '.repeat(len - w) + str
+  const cut = width(str) > len ? slice(str, len) : str
+  return ' '.repeat(len - width(cut)) + cut
 }
 
 // named: the user's /rename, auto: the tool's generated title, prompt: neither
