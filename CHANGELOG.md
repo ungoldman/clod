@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 - Commit convention is based on [Conventional Commits](http://conventionalcommits.org).
 - Versioning and releases are automated with [Release Please](https://github.com/googleapis/release-please).
 
+## [1.4.0](https://github.com/ungoldman/clod/compare/v1.3.2...v1.4.0) (2026-11-16)
+
+
+### Features
+
+* show Claude Code auto titles ([#27](https://github.com/ungoldman/clod/issues/27)) ([3c2b0b5](https://github.com/ungoldman/clod/commit/3c2b0b5bb105d334be1ac672ad6c65c1b10b12a2))
+* support omp sessions ([#30](https://github.com/ungoldman/clod/issues/30)) ([bdd5164](https://github.com/ungoldman/clod/commit/bdd516454516b9009eff0f8ebc3be183e50f9fbb))
+
+
+### Bug Fixes
+
+* match Claude Code rename and delete ([#29](https://github.com/ungoldman/clod/issues/29)) ([b34c580](https://github.com/ungoldman/clod/commit/b34c5803dce7970749b64526edb81eb039d0f9ef))
+
 ## [1.3.2](https://github.com/ungoldman/clod/compare/v1.3.1...v1.3.2) (2026-11-01)
 
 
