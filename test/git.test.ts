@@ -148,6 +148,8 @@ test('findGitDir walks up, follows a worktree pointer (relative or absolute), nu
 
   const outside = await mkdtemp(join(tmpdir(), 'clod-nogit-'))
   assert.equal(await findGitDir(outside), null)
+  // a removed worktree under the main checkout does not borrow the parent's branch
+  assert.equal(await findGitDir(join(root, 'removed-worktree')), null)
 })
 
 test('reflogBranches caches per cwd and gitdir, null outside a repo or without a log', async () => {

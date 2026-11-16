@@ -147,7 +147,10 @@ function InputText({
     h(
       Text,
       style,
-      pad(chars.slice(cursor + 1).join(''), Math.max(0, termWidth - cursor - GUTTER - 1))
+      pad(
+        chars.slice(cursor + 1).join(''),
+        Math.max(0, termWidth - GUTTER - width(chars.slice(0, cursor + 1).join('')))
+      )
     )
   )
 }
@@ -489,7 +492,7 @@ export interface AppProps {
   initialSortMode?: SortMode
   onResume: (session: Session) => void
   onDelete?: (session: Session) => Promise<void>
-  onRename?: (session: Session, title: string) => Promise<void>
+  onRename?: (session: Session, title: string) => Promise<string>
   loadMessages?: (session: Session) => Promise<Message[]>
   onSaveConfig?: (config: { sortMode: SortMode }) => Promise<void>
   loadLive?: (sessions: Session[]) => Promise<Set<string>>
@@ -646,12 +649,20 @@ export default function App({
             s.sessionId === current.sessionId ? { ...s, title } : s
           setSessions((cur) => cur.map(updateRow))
           // persist in the background; revert and warn if it fails
-          onRename(current, title).catch((err) => {
-            const revertRow = (s: Session) =>
-              s.sessionId === current.sessionId ? { ...s, title: current.title } : s
-            setSessions((cur) => cur.map(revertRow))
-            setError(`could not save rename: ${err.message}`)
-          })
+          onRename(current, title).then(
+            (stored) => {
+              if (stored === title) return
+              const storedRow = (s: Session) =>
+                s.sessionId === current.sessionId ? { ...s, title: stored } : s
+              setSessions((cur) => cur.map(storedRow))
+            },
+            (err) => {
+              const revertRow = (s: Session) =>
+                s.sessionId === current.sessionId ? { ...s, title: current.title } : s
+              setSessions((cur) => cur.map(revertRow))
+              setError(`could not save rename: ${err.message}`)
+            }
+          )
         }
         return
       }

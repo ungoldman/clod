@@ -238,9 +238,9 @@ export async function parseSession(filePath: string, fileStats: Stats): Promise<
       totals.cacheWrite += t.models[k].cacheWrite
     }
     const lastTimestamp = t.lastTimestamp ? new Date(t.lastTimestamp).getTime() : fileStats.mtimeMs
-    const gitBranch = t.importedFrom
-      ? await importedBranch(t.importedFrom)
-      : await branchOf(cwd, lastTimestamp)
+    const gitBranch =
+      (t.importedFrom ? await importedBranch(t.importedFrom) : null) ??
+      (await branchOf(cwd, lastTimestamp))
 
     return {
       harness: 'omp',
@@ -417,7 +417,6 @@ export async function openHistory(): Promise<HistoryDb | null> {
     process.emitWarning = emit
   }
   const db = new sqlite.DatabaseSync(path)
-  db.exec('PRAGMA busy_timeout = 5000')
   return {
     run: (sql, ...params) => {
       db.prepare(sql).run(...params)
@@ -435,11 +434,18 @@ async function updateHistory(
   let db: HistoryDb | null = null
   try {
     db = await openDb()
-    for (const [sql, ...params] of statements) db?.run(sql, ...params)
-  } catch {
-  } finally {
-    db?.close()
+  } catch {}
+  if (!db) return
+  // a short wait: the TUI blocks on it, and the index is only a cache
+  for (const [sql, ...params] of [
+    ['PRAGMA busy_timeout = 250'],
+    ...statements
+  ] as typeof statements) {
+    try {
+      db.run(sql, ...params)
+    } catch {}
   }
+  db.close()
 }
 
 // ─── Rename ──────────────────────────────────────────────────────────────────
@@ -453,7 +459,8 @@ const slotLine = (title: string, updatedAt: string, pad: string) =>
 // fits, padded with spaces to exactly 256 bytes.
 export function serializeSlot(title: string, updatedAt: string): string {
   const points = [...title]
-  let n = points.length
+  // a 256-byte slot holds far fewer than 256 code points
+  let n = Math.min(points.length, SLOT_BYTES)
   while (
     n > 0 &&
     Buffer.byteLength(slotLine(points.slice(0, n).join(''), updatedAt, '')) > SLOT_BYTES
@@ -486,10 +493,11 @@ export async function renameSession(
     probes = realProbes,
     openDb = openHistory
   }: { probes?: Probes; openDb?: () => Promise<HistoryDb | null> } = {}
-): Promise<void> {
+): Promise<string> {
   const clean = cleanTitle(title)
   if (!clean) throw new Error('title is empty')
   await refuseLive(session, probes)
+  let stored = clean
   const fh = await open(session.filePath, 'r+')
   try {
     const head = Buffer.alloc(SLOT_BYTES)
@@ -501,7 +509,9 @@ export async function renameSession(
     } catch {}
     if (slot?.type !== 'title' || slot.v !== 1)
       throw new Error('no title slot, resume it in omp to rename')
-    await fh.write(Buffer.from(serializeSlot(clean, new Date().toISOString())), 0, SLOT_BYTES, 0)
+    const line = serializeSlot(clean, new Date().toISOString())
+    stored = JSON.parse(line).title
+    await fh.write(Buffer.from(line), 0, SLOT_BYTES, 0)
   } finally {
     await fh.close()
   }
@@ -509,9 +519,10 @@ export async function renameSession(
     [
       "INSERT INTO session_titles (session_id, title, updated_at) VALUES (?, ?, CAST(strftime('%s','now') AS INTEGER)) ON CONFLICT(session_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
       session.sessionId,
-      clean
+      stored
     ]
   ])
+  return stored
 }
 
 // ─── Delete ──────────────────────────────────────────────────────────────────

@@ -61,6 +61,7 @@ function renderApp(sessions: Session[], overrides: Partial<AppProps> = {}) {
     },
     onRename: async (s, title) => {
       renamed.push([s.filePath, title])
+      return title
     },
     onSaveConfig: async ({ sortMode }) => {
       saved.push(sortMode)
@@ -877,4 +878,37 @@ test('a live read that lands after unmount is dropped', async () => {
   unmount()
   resolve(new Set(['sid']))
   await delay(20)
+})
+
+test('rename shows the title as the harness stored it', async () => {
+  const { lastFrame, stdin, unmount } = renderApp(
+    [mkSession({ title: 'old' }), mkSession({ sessionId: 'other', title: 'untouched' })],
+    { onRename: async () => 'cut by the harness' }
+  )
+  await delay()
+  stdin.write('r')
+  await delay(20)
+  stdin.write('x')
+  await delay(20)
+  stdin.write(KEY.enter)
+  await delay(40)
+  assert.match(plain(lastFrame()), /cut by the harness/)
+  assert.match(plain(lastFrame()), /untouched/)
+  unmount()
+})
+
+test('width counts terminal cells: emoji and CJK take two, Nerd Font icons one', async () => {
+  const { lastFrame, unmount } = renderApp([
+    mkSession({ sessionId: 'e', title: '🚀 漢 deploy', lastTimestamp: 2 }),
+    mkSession({ sessionId: 'n', harness: 'omp', title: '󰚰 icon', lastTimestamp: 1 })
+  ])
+  await delay()
+  const rows = plain(lastFrame())
+    .split('\n')
+    .filter((l) => /deploy|icon/.test(l))
+  assert.equal(rows.length, 2)
+  // both rows end in the same column, which they only do when widths are right
+  const { default: stringWidth } = await import('string-width')
+  assert.equal(stringWidth(rows[0].trimEnd()), stringWidth(rows[1].trimEnd()))
+  unmount()
 })

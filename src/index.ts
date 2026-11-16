@@ -1,8 +1,10 @@
 #!/usr/bin/env node
+import { join } from 'node:path'
 import { helpText, parseArgs, readPackage } from './cli.ts'
 import { loadConfig } from './config.ts'
 import { harnessOf, listSessionFiles, parseSessions } from './harnesses/index.ts'
-import type { Session } from './sessions.ts'
+import { agentDir } from './harnesses/omp.ts'
+import { type Session, shortPath } from './sessions.ts'
 
 const action = parseArgs(process.argv.slice(2))
 
@@ -22,7 +24,9 @@ const FIRST_BATCH = 40
 const files = await listSessionFiles()
 
 if (files.length === 0) {
-  console.log('No sessions found in ~/.claude/projects or ~/.omp/agent/sessions')
+  console.log(
+    `No sessions found in ~/.claude/projects or ${shortPath(join(agentDir(), 'sessions'))}`
+  )
   process.exit(0)
 }
 

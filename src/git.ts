@@ -10,7 +10,18 @@ const HEX = /^[0-9a-f]{7,64}$/
 
 // The gitdir for cwd: the nearest .git up the tree, following a worktree's
 // `gitdir:` pointer. null outside a repo.
+// A cwd that no longer exists gets null rather than an unrelated parent repo's
+// branch (a removed worktree under its main checkout, a dotfiles repo at ~).
 export async function findGitDir(cwd: string): Promise<string | null> {
+  try {
+    await stat(cwd)
+  } catch {
+    return null
+  }
+  return walkUp(cwd)
+}
+
+async function walkUp(cwd: string): Promise<string | null> {
   const dir = resolve(cwd)
   const dotGit = join(dir, '.git')
   try {
@@ -20,7 +31,7 @@ export async function findGitDir(cwd: string): Promise<string | null> {
     if (m) return isAbsolute(m[1].trim()) ? m[1].trim() : resolve(dir, m[1].trim())
   } catch {}
   const parent = dirname(dir)
-  return parent === dir ? null : findGitDir(parent)
+  return parent === dir ? null : walkUp(parent)
 }
 
 async function readOr(path: string): Promise<string> {

@@ -201,7 +201,7 @@ test('parse: a --from-claude import reads the original transcript branch, null w
     parentId: null
   })
   assert.equal((await parse([slot('i', 'auto'), header(), imp(original)]))?.gitBranch, 'feat/a')
-  assert.equal((await parse([header(), imp(join(dir, 'gone.jsonl'))]))?.gitBranch, null)
+  assert.equal((await parse([header(), imp(join(dir, 'gone.jsonl'))]))?.gitBranch, null) // falls back to the reflog, and /nowhere is no repo
   // an import record without a path is not an import
   assert.equal(
     (await parse([header(), { type: 'custom', customType: 'foreign_session_import', data: {} }]))

@@ -511,6 +511,9 @@ export const claude: Harness = {
   messages: (s) => getSessionMessages(s.filePath),
   resume: (s) => ({ command: 'claude', args: ['--resume', s.sessionId] }),
   liveIds: () => liveSessionIds(),
-  rename: (s, title) => renameSession(s.filePath, title),
+  rename: async (s, title) => {
+    await renameSession(s.filePath, title)
+    return title
+  },
   delete: (s) => deleteSession(s.filePath)
 }

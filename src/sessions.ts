@@ -55,7 +55,8 @@ export interface Harness {
   resume: (session: Session) => { command: string; args: string[] }
   // ids a running harness has open, for the list's mark
   liveIds: (sessions: Session[]) => Promise<Set<string>>
-  rename: (session: Session, title: string) => Promise<void>
+  // resolves to the title as stored, which a harness may clean or cut
+  rename: (session: Session, title: string) => Promise<string>
   delete: (session: Session) => Promise<void>
 }
 
