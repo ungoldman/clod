@@ -1,8 +1,9 @@
 import type { Stats } from 'node:fs'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { reflogBranches } from '../git.ts'
+import { ompLeases, terminalProcesses } from '../proc.ts'
 import {
   type Harness,
   type Message,
@@ -10,8 +11,10 @@ import {
   type Session,
   type SessionFile,
   type TokenUsage,
+  type TrashFn,
   throughputOf
 } from '../sessions.ts'
+import { trashPaths } from '../trash.ts'
 
 // omp honors PI_CODING_AGENT_DIR for its whole agent tree, sessions and
 // history.db included.
@@ -311,6 +314,240 @@ export async function listSessionFiles(): Promise<SessionFile[]> {
   return stats.filter((s): s is SessionFile => s !== null)
 }
 
+// ─── Live sessions ───────────────────────────────────────────────────────────
+
+export interface Probes {
+  leases: (ids: string[]) => Promise<Set<string> | null>
+  terminals: () => Promise<{ tty: string; command: string }[]>
+}
+
+const realProbes: Probes = { leases: ompLeases, terminals: terminalProcesses }
+
+// An interactive omp, not one of its workers or a one-shot subcommand.
+function isInteractiveOmp(command: string): boolean {
+  const [bin, sub] = command.split(/\s+/)
+  return basename(bin) === 'omp' && !command.includes('__omp_worker') && sub !== 'session'
+}
+
+// Transcripts an interactive omp has open. omp rewrites terminal-sessions/<tty>
+// whenever a terminal creates, switches, or resumes a session, so a breadcrumb
+// names the open one while an omp runs on that tty. Breadcrumbs outlive omp,
+// and ones named for a multiplexer pane or terminal app have no tty to check.
+async function openFiles(probes: Probes): Promise<Set<string>> {
+  const ttys = new Set(
+    (await probes.terminals())
+      .filter((p) => isInteractiveOmp(p.command))
+      .map((p) => p.tty.replace(/\//g, '-'))
+  )
+  const dir = join(agentDir(), 'terminal-sessions')
+  const open = new Set<string>()
+  let names: string[]
+  try {
+    names = await readdir(dir)
+  } catch {
+    return open
+  }
+  for (const name of names.filter((n) => ttys.has(n))) {
+    try {
+      const file = (await readFile(join(dir, name), 'utf8')).split('\n')[1]?.trim()
+      if (file) open.add(file)
+    } catch {}
+  }
+  return open
+}
+
+// Sessions a running omp would write back over: held while it writes, or open
+// in a terminal while it idles, which holds no lease. null when the lease probe
+// failed, so a caller about to write can refuse rather than guess.
+export async function liveSessionIds(
+  sessions: Session[],
+  probes: Probes = realProbes
+): Promise<Set<string> | null> {
+  const [held, files] = await Promise.all([
+    probes.leases(sessions.map((s) => s.sessionId)),
+    openFiles(probes)
+  ])
+  if (held === null) return null
+  for (const s of sessions) if (files.has(s.filePath)) held.add(s.sessionId)
+  return held
+}
+
+async function refuseLive(session: Session, probes: Probes): Promise<void> {
+  const live = await liveSessionIds([session], probes)
+  if (live === null) throw new Error('could not check whether omp has the session open')
+  if (live.has(session.sessionId)) throw new Error('session is open in omp')
+}
+
+// ─── history.db ──────────────────────────────────────────────────────────────
+
+export interface HistoryDb {
+  run: (sql: string, ...params: (string | number)[]) => void
+  close: () => void
+}
+
+// Node 22 prints an ExperimentalWarning for node:sqlite, which would land on
+// the TUI. Node 24 prints none.
+export function quietSqlite(emit: typeof process.emitWarning): typeof process.emitWarning {
+  return ((warning: string | Error, ...rest: unknown[]) => {
+    const text = typeof warning === 'string' ? warning : warning.message
+    if (text.includes('SQLite')) return
+    return (emit as (...a: unknown[]) => void).call(process, warning, ...rest)
+  }) as typeof process.emitWarning
+}
+
+// omp's index of titles and recaps, opened only when it exists: opening a
+// missing path would create one omp never made.
+export async function openHistory(): Promise<HistoryDb | null> {
+  const path = join(agentDir(), 'history.db')
+  try {
+    await stat(path)
+  } catch {
+    return null
+  }
+  const emit = process.emitWarning
+  process.emitWarning = quietSqlite(emit)
+  let sqlite: typeof import('node:sqlite')
+  try {
+    sqlite = await import('node:sqlite')
+  } finally {
+    process.emitWarning = emit
+  }
+  const db = new sqlite.DatabaseSync(path)
+  db.exec('PRAGMA busy_timeout = 5000')
+  return {
+    run: (sql, ...params) => {
+      db.prepare(sql).run(...params)
+    },
+    close: () => db.close()
+  }
+}
+
+// The index is a cache omp's picker rebuilds from transcripts, so a busy or
+// odd database never fails the rename or delete that already landed.
+async function updateHistory(
+  openDb: () => Promise<HistoryDb | null>,
+  statements: [string, ...(string | number)[]][]
+): Promise<void> {
+  let db: HistoryDb | null = null
+  try {
+    db = await openDb()
+    for (const [sql, ...params] of statements) db?.run(sql, ...params)
+  } catch {
+  } finally {
+    db?.close()
+  }
+}
+
+// ─── Rename ──────────────────────────────────────────────────────────────────
+
+const SLOT_BYTES = 256
+
+const slotLine = (title: string, updatedAt: string, pad: string) =>
+  `${JSON.stringify({ type: 'title', v: 1, title, source: 'user', updatedAt, pad })}\n`
+
+// omp's serializeTitleSlot: the longest code-point prefix of the title that
+// fits, padded with spaces to exactly 256 bytes.
+export function serializeSlot(title: string, updatedAt: string): string {
+  const points = [...title]
+  let n = points.length
+  while (
+    n > 0 &&
+    Buffer.byteLength(slotLine(points.slice(0, n).join(''), updatedAt, '')) > SLOT_BYTES
+  )
+    n--
+  const fit = points.slice(0, n).join('')
+  return slotLine(
+    fit,
+    updatedAt,
+    ' '.repeat(SLOT_BYTES - Buffer.byteLength(slotLine(fit, updatedAt, '')))
+  )
+}
+
+// omp's #cleanTitle
+export const cleanTitle = (title: string): string =>
+  title
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it strips
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+// Rename as omp's own picker does: the slot on line 1 rewritten in place at the
+// same length, plus the title index. No title_change record, which would fork
+// the tree under an omp that has the file open, and no file rename, since omp
+// keys sessions by the id in the filename.
+export async function renameSession(
+  session: Session,
+  title: string,
+  {
+    probes = realProbes,
+    openDb = openHistory
+  }: { probes?: Probes; openDb?: () => Promise<HistoryDb | null> } = {}
+): Promise<void> {
+  const clean = cleanTitle(title)
+  if (!clean) throw new Error('title is empty')
+  await refuseLive(session, probes)
+  const fh = await open(session.filePath, 'r+')
+  try {
+    const head = Buffer.alloc(SLOT_BYTES)
+    const { bytesRead } = await fh.read(head, 0, SLOT_BYTES, 0)
+    let slot: { type?: string; v?: number } | null = null
+    try {
+      if (bytesRead === SLOT_BYTES && head[SLOT_BYTES - 1] === 10)
+        slot = JSON.parse(head.toString('utf8'))
+    } catch {}
+    if (slot?.type !== 'title' || slot.v !== 1)
+      throw new Error('no title slot, resume it in omp to rename')
+    await fh.write(Buffer.from(serializeSlot(clean, new Date().toISOString())), 0, SLOT_BYTES, 0)
+  } finally {
+    await fh.close()
+  }
+  await updateHistory(openDb, [
+    [
+      "INSERT INTO session_titles (session_id, title, updated_at) VALUES (?, ?, CAST(strftime('%s','now') AS INTEGER)) ON CONFLICT(session_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
+      session.sessionId,
+      clean
+    ]
+  ])
+}
+
+// ─── Delete ──────────────────────────────────────────────────────────────────
+
+// Delete as omp's picker does (the transcript, its artifact directory, and
+// rewrite leftovers), trashed rather than unlinked, refused while omp has it
+// open since a live omp writes the whole file back. Lock sidecars stay, as omp
+// leaves them. The title and recap rows go too, as omp gc drops them. Prompt
+// history stays: it is deduped across sessions and feeds a full-text index.
+export async function deleteSession(
+  session: Session,
+  {
+    trashFn = trashPaths,
+    probes = realProbes,
+    openDb = openHistory
+  }: { trashFn?: TrashFn; probes?: Probes; openDb?: () => Promise<HistoryDb | null> } = {}
+): Promise<void> {
+  await refuseLive(session, probes)
+  const file = session.filePath
+  const stem = basename(file, '.jsonl')
+  const candidates = [file, join(dirname(file), stem)]
+  try {
+    for (const name of await readdir(dirname(file)))
+      if (name.startsWith(`${stem}.jsonl.`) && name.endsWith('.bak'))
+        candidates.push(join(dirname(file), name))
+  } catch {}
+  const toTrash: string[] = []
+  for (const p of candidates) {
+    try {
+      await stat(p)
+      toTrash.push(p)
+    } catch {}
+  }
+  await trashFn(toTrash)
+  await updateHistory(openDb, [
+    ['DELETE FROM session_titles WHERE session_id = ?', session.sessionId],
+    ['DELETE FROM session_recaps WHERE session_id = ?', session.sessionId]
+  ])
+}
+
 export const omp: Harness = {
   id: 'omp',
   name: 'omp',
@@ -320,10 +557,6 @@ export const omp: Harness = {
   messages: (s) => getSessionMessages(s.filePath),
   // the full id: omp resolves a prefix too, but its lease probe does not
   resume: (s) => ({ command: 'omp', args: ['--resume', s.sessionId] }),
-  rename: async () => {
-    throw new Error('rename is not supported for omp yet')
-  },
-  delete: async () => {
-    throw new Error('delete is not supported for omp yet')
-  }
+  rename: (s, title) => renameSession(s, title),
+  delete: (s) => deleteSession(s)
 }

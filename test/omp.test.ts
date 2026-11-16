@@ -1,16 +1,26 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 import {
   activeBranch,
   agentDir,
+  cleanTitle,
+  deleteSession,
   getSessionMessages,
   listSessionFiles,
+  liveSessionIds,
   omp,
-  parseSession
+  openHistory,
+  type Probes,
+  parseSession,
+  quietSqlite,
+  renameSession,
+  serializeSlot
 } from '../src/harnesses/omp.ts'
+import type { Session } from '../src/sessions.ts'
 
 type Rec = Record<string, unknown> | string
 
@@ -276,11 +286,235 @@ test('listSessionFiles: depth-two .jsonl under the agent dir, PI_CODING_AGENT_DI
     assert.ok(s)
     assert.equal((await omp.messages(s)).length, 0)
     assert.deepEqual(omp.resume(s), { command: 'omp', args: ['--resume', '01a1-full-id'] })
-    await assert.rejects(omp.rename(s, 'x'), /not supported/)
-    await assert.rejects(omp.delete(s), /not supported/)
     delete process.env.PI_CODING_AGENT_DIR
     assert.match(agentDir(), /\.omp\/agent$/)
   } finally {
     if (prev !== undefined) process.env.PI_CODING_AGENT_DIR = prev
   }
+})
+
+// ─── rename, delete, live ───────────────────────────────────────────────────
+
+async function withAgentDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const prev = process.env.PI_CODING_AGENT_DIR
+  const dir = await mkdtemp(join(tmpdir(), 'clod-omp-agent-'))
+  process.env.PI_CODING_AGENT_DIR = dir
+  try {
+    return await fn(dir)
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR
+    else process.env.PI_CODING_AGENT_DIR = prev
+  }
+}
+
+const idle: Probes = { leases: async () => new Set(), terminals: async () => [] }
+
+function historyDb(dir: string) {
+  const db = new DatabaseSync(join(dir, 'history.db'))
+  db.exec(`CREATE TABLE session_titles (session_id TEXT PRIMARY KEY, title TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE session_recaps (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, cwd TEXT NOT NULL, recap TEXT NOT NULL);
+    CREATE TABLE history (id INTEGER PRIMARY KEY, prompt TEXT, session_id TEXT);
+    INSERT INTO session_titles VALUES ('01a1-full-id', 'Old', 1), ('other', 'Keep', 1);
+    INSERT INTO session_recaps (session_id, cwd, recap) VALUES ('01a1-full-id', '/p', 'r'), ('other', '/p', 'r');
+    INSERT INTO history (prompt, session_id) VALUES ('hi', '01a1-full-id');`)
+  return db
+}
+
+async function sessionIn(
+  dir: string,
+  records: Rec[] = [slot('Old', 'auto'), header(), msg('u1', null, 'user', 'hi')]
+) {
+  const slug = join(dir, 'sessions', '-dev-q')
+  await mkdir(slug, { recursive: true })
+  const file = await writeSession(records, slug)
+  return (await parseSession(file, await stat(file))) as Session
+}
+
+test('serializeSlot / cleanTitle: 256 bytes exactly, code-point truncation, omp cleaning', () => {
+  const line = serializeSlot('󰚰 short', '2026-11-15T00:00:00.000Z')
+  assert.equal(Buffer.byteLength(line), 256)
+  assert.equal(JSON.parse(line).source, 'user')
+  const long = serializeSlot('é'.repeat(300), '2026-11-15T00:00:00.000Z')
+  assert.equal(Buffer.byteLength(long), 256)
+  assert.match(JSON.parse(long).title, /^é+$/)
+  assert.equal(cleanTitle('  a\u0007b \n\t c  '), 'a b c')
+})
+
+test('rename: rewrites the slot in place at the same length and upserts the index', async () => {
+  await withAgentDir(async (dir) => {
+    const db = historyDb(dir)
+    const s = await sessionIn(dir)
+    const before = await readFile(s.filePath)
+    await renameSession(s, '  New\tname ', { probes: idle })
+    const after = await readFile(s.filePath)
+    assert.equal(after.length, before.length)
+    assert.deepEqual(after.subarray(256), before.subarray(256))
+    const reparsed = await parseSession(s.filePath, await stat(s.filePath))
+    assert.equal(reparsed?.title, 'New name')
+    assert.equal(reparsed?.aiTitle, null)
+    const rows = db
+      .prepare('SELECT session_id, title FROM session_titles ORDER BY session_id')
+      .all()
+    assert.deepEqual(
+      rows.map((r) => [r.session_id, r.title]),
+      [
+        ['01a1-full-id', 'New name'],
+        ['other', 'Keep']
+      ]
+    )
+    db.close()
+  })
+})
+
+test('rename: no history.db is skipped, a broken one is tolerated', async () => {
+  await withAgentDir(async (dir) => {
+    const s = await sessionIn(dir)
+    await renameSession(s, 'one', { probes: idle })
+    assert.equal(await openHistory(), null) // never created
+    await writeFile(join(dir, 'history.db'), '') // empty db: no tables
+    await renameSession(s, 'two', { probes: idle })
+    assert.equal((await parseSession(s.filePath, await stat(s.filePath)))?.title, 'two')
+    await renameSession(s, 'three', {
+      probes: idle,
+      openDb: async () => {
+        throw new Error('busy')
+      }
+    })
+  })
+})
+
+test('rename refuses an empty title, a live session, a failed probe, and a slotless file', async () => {
+  await withAgentDir(async (dir) => {
+    const s = await sessionIn(dir)
+    const before = await readFile(s.filePath, 'utf8')
+    await assert.rejects(renameSession(s, ' \n ', { probes: idle }), /empty/)
+    await assert.rejects(
+      renameSession(s, 'x', { probes: { ...idle, leases: async (ids) => new Set(ids) } }),
+      /open in omp/
+    )
+    await assert.rejects(
+      renameSession(s, 'x', { probes: { ...idle, leases: async () => null } }),
+      /could not check/
+    )
+    assert.equal(await readFile(s.filePath, 'utf8'), before)
+
+    const legacy = await sessionIn(join(dir, 'l'), [header(), msg('u1', null, 'user', 'hi')])
+    await assert.rejects(renameSession(legacy, 'x', { probes: idle }), /no title slot/)
+    const short = await sessionIn(join(dir, 's'), [header()])
+    await assert.rejects(renameSession(short, 'x', { probes: idle }), /no title slot/)
+    const notJson = await sessionIn(join(dir, 'j'), [`{${'x'.repeat(254)}`, header()])
+    await assert.rejects(
+      renameSession({ ...notJson, filePath: notJson?.filePath ?? '' }, 'x', { probes: idle }),
+      /no title slot/
+    )
+  })
+})
+
+test('delete: trashes the transcript, artifacts, and .bak leftovers, drops title and recap rows', async () => {
+  await withAgentDir(async (dir) => {
+    const db = historyDb(dir)
+    const s = await sessionIn(dir)
+    const slug = join(dir, 'sessions', '-dev-q')
+    const stem = '2026-11-01T00-00-00-000Z_01a1-full-id'
+    await mkdir(join(slug, stem))
+    await writeFile(join(slug, `${stem}.jsonl.123.bak`), '')
+    await writeFile(join(slug, `.${stem}.jsonl.lock.os`), '')
+    await writeFile(join(slug, `${stem}.jsonl.notes`), '')
+    const trashed: string[] = []
+    await deleteSession(s, {
+      probes: idle,
+      trashFn: async (paths) => {
+        trashed.push(...paths)
+      }
+    })
+    assert.deepEqual(
+      trashed.sort(),
+      [join(slug, stem), s.filePath, join(slug, `${stem}.jsonl.123.bak`)].sort()
+    )
+    const count = (table: string) =>
+      (
+        db
+          .prepare(`SELECT count(*) AS n FROM ${table} WHERE session_id = '01a1-full-id'`)
+          .get() as { n: number }
+      ).n
+    assert.equal(count('session_titles'), 0)
+    assert.equal(count('session_recaps'), 0)
+    assert.equal(count('history'), 1)
+    assert.equal(
+      (db.prepare('SELECT count(*) AS n FROM session_titles').get() as { n: number }).n,
+      1
+    )
+    db.close()
+  })
+})
+
+test('delete refuses a live session and tolerates a vanished directory', async () => {
+  await withAgentDir(async (dir) => {
+    const s = await sessionIn(dir)
+    await assert.rejects(
+      deleteSession(s, { probes: { ...idle, leases: async (ids) => new Set(ids) } }),
+      /open in omp/
+    )
+    const trashed: string[] = []
+    await deleteSession(
+      { ...s, filePath: join(dir, 'gone', 'x.jsonl') },
+      { probes: idle, trashFn: async (p) => void trashed.push(...p) }
+    )
+    assert.deepEqual(trashed, [])
+  })
+})
+
+test('liveSessionIds: a lease, or a breadcrumb on a tty running an interactive omp', async () => {
+  await withAgentDir(async (dir) => {
+    const a = await sessionIn(join(dir, 'a'))
+    const b = { ...a, sessionId: 'b', filePath: '/x/b.jsonl' }
+    const c = { ...a, sessionId: 'c', filePath: '/x/c.jsonl' }
+    const d = { ...a, sessionId: 'd', filePath: '/x/d.jsonl' }
+    const all = [a, b, c, d]
+    assert.deepEqual(await liveSessionIds(all, idle), new Set()) // no terminal-sessions dir
+    const crumbs = join(dir, 'terminal-sessions')
+    await mkdir(join(crumbs, 'ttys009'), { recursive: true }) // unreadable as a file
+    await writeFile(join(crumbs, 'ttys001'), `/p\n${b.filePath}\ncwdstat 1 2\n`)
+    await writeFile(join(crumbs, 'pts-3'), `/p\n${c.filePath}\n`)
+    await writeFile(join(crumbs, 'ttys002'), `/p\n${d.filePath}\n`) // its omp is a worker
+    await writeFile(join(crumbs, 'ttys004'), '/p\n') // no session line
+    await writeFile(join(crumbs, 'tmux-%1'), `/p\n${d.filePath}\n`) // no tty to check
+    const probes: Probes = {
+      leases: async () => new Set(['held']),
+      terminals: async () => [
+        { tty: 'ttys001', command: '/Users/u/.local/bin/omp' },
+        { tty: 'pts/3', command: 'omp --resume c' },
+        { tty: 'ttys002', command: 'omp __omp_worker_x' },
+        { tty: 'ttys002', command: 'omp session lease --json -- d' },
+        { tty: 'ttys004', command: 'omp' },
+        { tty: 'ttys009', command: 'omp' },
+        { tty: 'ttys005', command: 'zsh' }
+      ]
+    }
+    assert.deepEqual(await liveSessionIds(all, probes), new Set(['held', 'b', 'c']))
+    assert.equal(await liveSessionIds(all, { ...probes, leases: async () => null }), null)
+  })
+})
+
+test('quietSqlite drops only the SQLite experimental warning', () => {
+  const seen: unknown[] = []
+  const emit = quietSqlite(((w: unknown) => void seen.push(w)) as typeof process.emitWarning)
+  emit('SQLite is an experimental feature')
+  emit(new Error('SQLite again'))
+  emit('something else')
+  emit(new Error('another'))
+  assert.equal(seen.length, 2)
+})
+
+test('the omp harness renames and deletes through its real probes', async () => {
+  await withAgentDir(async (dir) => {
+    const s = await sessionIn(dir, [
+      slot('Old', 'auto'),
+      header({ id: '00000000-clod-test-not-a-session' })
+    ])
+    await omp.rename(s, 'via harness')
+    assert.equal((await parseSession(s.filePath, await stat(s.filePath)))?.title, 'via harness')
+    // nothing exists at this path, so the real trash gets an empty list
+    await omp.delete({ ...s, filePath: join(dir, 'missing', 'x.jsonl') })
+  })
 })
