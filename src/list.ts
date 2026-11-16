@@ -10,18 +10,27 @@ const sessionIdAt = (items: DisplayItem[], i: number): string =>
 // below these widths a column is hidden rather than truncated into noise
 export const BRANCH_MIN = 8
 export const DIR_MIN = 10
+export const GUTTER = 3
+
+// Columns are counted in code points, so an astral character (omp's Nerd Font
+// title icons) takes the one cell a terminal gives it, not two.
+export const width = (str: string): number => [...str].length
+
+const slice = (str: string, n: number): string => [...str].slice(0, n).join('')
 
 export function truncate(str: string | null | undefined, max: number): string {
   if (!str) return ''
-  return str.length > max ? `${str.slice(0, max - 1)}…` : str
+  return width(str) > max ? `${slice(str, max - 1)}…` : str
 }
 
 export function pad(str: string, len: number): string {
-  return str.length >= len ? str.slice(0, len) : str + ' '.repeat(len - str.length)
+  const w = width(str)
+  return w >= len ? slice(str, len) : str + ' '.repeat(len - w)
 }
 
 export function padLeft(str: string, len: number): string {
-  return str.length >= len ? str.slice(0, len) : ' '.repeat(len - str.length) + str
+  const w = width(str)
+  return w >= len ? slice(str, len) : ' '.repeat(len - w) + str
 }
 
 // named: the user's /rename, auto: the tool's generated title, prompt: neither
@@ -76,22 +85,22 @@ export function computeRowLayout(opts: {
   const naturalBranch = session.gitBranch ?? null
   const showDir = sortMode !== 'directory'
 
-  // flex = space for title + branch + dir after the fixed right block
-  // (used/ctx/time + three 2-space gaps).
+  // flex = space for title + branch + dir after the 3-column gutter (cursor,
+  // harness mark, space) and the fixed right block (used/ctx/time + three 2-space gaps).
   const { text: fullTitle, kind } = displayTitle(session)
-  const flex = termWidth - 2 - usedWidth - ctxWidth - timeWidth - 6
+  const flex = termWidth - GUTTER - usedWidth - ctxWidth - timeWidth - 6
   const claim =
-    kind === 'prompt' ? Math.min(fullTitle.length, Math.floor(flex / 2)) : fullTitle.length
+    kind === 'prompt' ? Math.min(width(fullTitle), Math.floor(flex / 2)) : width(fullTitle)
   let avail = flex - claim
 
   let dirWidth = 0
   if (showDir && avail >= DIR_MIN + 2) {
-    dirWidth = Math.min(pathStr.length, avail - 2)
+    dirWidth = Math.min(width(pathStr), avail - 2)
     avail -= dirWidth + 2
   }
   let branchWidth = 0
   if (naturalBranch && avail >= BRANCH_MIN + 2) {
-    branchWidth = Math.min(naturalBranch.length, avail - 2)
+    branchWidth = Math.min(width(naturalBranch), avail - 2)
     avail -= branchWidth + 2
   }
   // title absorbs the leftover as padding so the right block stays aligned

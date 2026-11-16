@@ -30,4 +30,12 @@ export async function loadSessions(): Promise<Session[]> {
 export const getSessionMessages = (s: Session): Promise<Message[]> => harnessOf(s).messages(s)
 export const renameSession = (s: Session, title: string): Promise<void> =>
   harnessOf(s).rename(s, title)
+// Ids of every session a running harness has open, one probe per harness.
+export async function liveSessions(sessions: Session[]): Promise<Set<string>> {
+  const sets = await Promise.all(
+    HARNESSES.map((h) => h.liveIds(sessions.filter((s) => s.harness === h.id)))
+  )
+  return new Set(sets.flatMap((s) => [...s]))
+}
+
 export const deleteSession = (s: Session): Promise<void> => harnessOf(s).delete(s)

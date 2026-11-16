@@ -8,6 +8,7 @@ import {
   getSessionMessages,
   harnessOf,
   listSessionFiles,
+  liveSessions,
   renameSession
 } from '../src/harnesses/index.ts'
 import { mkSession } from './helpers.ts'
@@ -49,5 +50,16 @@ test('claude harness: messages, rename, resume, and a refused delete dispatch by
     )
     await assert.rejects(deleteSession(s), /open in Claude Code/)
     assert.equal((await listSessionFiles()).length, 1)
+    // the same pid file marks it open in the list, and a file with no session id is skipped
+    await writeFile(join(home, '.claude', 'sessions', '1.json'), JSON.stringify({ pid: 1 }))
+    const omp = mkSession({ harness: 'omp', sessionId: 'o', filePath: join(home, 'x.jsonl') })
+    const prev = process.env.PI_CODING_AGENT_DIR
+    process.env.PI_CODING_AGENT_DIR = join(home, '.omp-agent')
+    try {
+      assert.deepEqual(await liveSessions([s, omp]), new Set(['sid']))
+    } finally {
+      if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR
+      else process.env.PI_CODING_AGENT_DIR = prev
+    }
   })
 })

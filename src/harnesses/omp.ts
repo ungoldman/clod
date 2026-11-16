@@ -372,6 +372,10 @@ export async function liveSessionIds(
   return held
 }
 
+// For the list's mark: a failed probe marks nothing.
+export const listLive = async (sessions: Session[], probes: Probes = realProbes) =>
+  (await liveSessionIds(sessions, probes)) ?? new Set<string>()
+
 async function refuseLive(session: Session, probes: Probes): Promise<void> {
   const live = await liveSessionIds([session], probes)
   if (live === null) throw new Error('could not check whether omp has the session open')
@@ -557,6 +561,7 @@ export const omp: Harness = {
   messages: (s) => getSessionMessages(s.filePath),
   // the full id: omp resolves a prefix too, but its lease probe does not
   resume: (s) => ({ command: 'omp', args: ['--resume', s.sessionId] }),
+  liveIds: (sessions) => listLive(sessions),
   rename: (s, title) => renameSession(s, title),
   delete: (s) => deleteSession(s)
 }

@@ -1,7 +1,14 @@
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink'
 import React from 'react'
 import { type SortMode, saveConfig } from './config.ts'
-import { deleteSession, getSessionMessages, renameSession } from './harnesses/index.ts'
+import {
+  deleteSession,
+  getSessionMessages,
+  HARNESSES,
+  harnessOf,
+  liveSessions,
+  renameSession
+} from './harnesses/index.ts'
 import {
   buildDisplayItems,
   computeNavigate,
@@ -12,13 +19,16 @@ import {
   displayTitle,
   filterItems,
   findAdjacentSessionId,
+  GUTTER,
   nextSortMode,
   pad,
   truncate,
-  usedStr
+  usedStr,
+  width
 } from './list.ts'
 import {
   fmtTokens,
+  type HarnessId,
   type Message,
   MONTHS,
   relativeTime,
@@ -28,11 +38,12 @@ import {
 import { bar, computeStats, sparkline } from './stats.ts'
 
 const h = React.createElement
-const { useState, useEffect, useMemo, memo } = React
+const { useState, useEffect, useMemo, useRef, memo } = React
 
 const HINT_HEIGHT = 1
 const HEADER_HEIGHT = 2
 const SNIPPET_HEIGHT = 3
+const LIVE_REFRESH_MS = 5000
 
 // ─── Row ─────────────────────────────────────────────────────────────────────
 
@@ -43,10 +54,12 @@ const SessionRow = memo(function SessionRow({
   sortMode,
   timeWidth,
   usedWidth,
-  ctxWidth
+  ctxWidth,
+  live = false
 }: {
   session: Session
   selected: boolean
+  live?: boolean
   termWidth: number
   sortMode: SortMode
   timeWidth: number
@@ -62,6 +75,9 @@ const SessionRow = memo(function SessionRow({
     ctxWidth
   })
 
+  // each harness's own glyph, lit while a running harness has the session open
+  const mark = harnessOf(session).mark
+
   if (selected) {
     const branchPart = branchCol ? `  ${branchCol}` : ''
     const dirPart = dirCol ? `  ${dirCol}` : ''
@@ -70,16 +86,18 @@ const SessionRow = memo(function SessionRow({
     return h(
       Box,
       {},
-      h(Text, hl, '> '),
+      h(Text, hl, '>'),
+      h(Text, live ? { ...hl, color: 'greenBright' } : hl, `${mark} `),
       h(Text, { ...hl, bold: titleKind === 'named', italic: titleKind === 'prompt' }, title),
-      h(Text, hl, pad(rest, Math.max(0, termWidth - 2 - title.length)))
+      h(Text, hl, pad(rest, Math.max(0, termWidth - GUTTER - width(title))))
     )
   }
 
   return h(
     Box,
     { flexDirection: 'row' },
-    h(Text, {}, '  '),
+    h(Text, {}, ' '),
+    h(Text, live ? { color: 'greenBright', bold: true } : { dimColor: true }, `${mark} `),
     h(
       Text,
       {
@@ -102,34 +120,43 @@ const SessionRow = memo(function SessionRow({
 function InputText({
   value,
   cursor,
-  termWidth
+  termWidth,
+  mark
 }: {
   value: string
   cursor: number
   termWidth: number
+  mark: string
 }) {
   const style = { backgroundColor: 'grey', color: 'white', bold: true }
+  const chars = [...value]
+  const prefix = `>${mark} `
 
   // Past the end there is no character to sit on: show a block instead
   // (ink trims trailing whitespace, so an inverse space would be invisible).
-  if (cursor >= value.length) {
-    return h(Box, {}, h(Text, style, pad(`> ${value}█`, termWidth)))
+  if (cursor >= chars.length) {
+    return h(Box, {}, h(Text, style, pad(`${prefix}${value}█`, termWidth)))
   }
 
   // The cursor is the inverse-video cell over the character it sits on.
   return h(
     Box,
     {},
-    h(Text, style, `> ${value.slice(0, cursor)}`),
-    h(Text, { ...style, inverse: true }, value[cursor]),
-    h(Text, style, pad(value.slice(cursor + 1), Math.max(0, termWidth - cursor - 3)))
+    h(Text, style, `${prefix}${chars.slice(0, cursor).join('')}`),
+    h(Text, { ...style, inverse: true }, chars[cursor]),
+    h(
+      Text,
+      style,
+      pad(chars.slice(cursor + 1).join(''), Math.max(0, termWidth - cursor - GUTTER - 1))
+    )
   )
 }
 
+// cursor counts code points, so it never lands inside a surrogate pair
 type RenameState = { value: string; cursor: number }
 
 function openRename(title: string): RenameState {
-  return { value: title, cursor: title.length }
+  return { value: title, cursor: width(title) }
 }
 
 function cursorLeft({ value, cursor }: RenameState): RenameState {
@@ -137,34 +164,38 @@ function cursorLeft({ value, cursor }: RenameState): RenameState {
 }
 
 function cursorRight({ value, cursor }: RenameState): RenameState {
-  return { value, cursor: Math.min(value.length, cursor + 1) }
+  return { value, cursor: Math.min(width(value), cursor + 1) }
 }
 
 // Start of the word left of the cursor: skip spaces, then the word itself.
 function cursorPrevWord({ value, cursor }: RenameState): RenameState {
+  const c = [...value]
   let i = cursor
-  while (i > 0 && value[i - 1] === ' ') i--
-  while (i > 0 && value[i - 1] !== ' ') i--
+  while (i > 0 && c[i - 1] === ' ') i--
+  while (i > 0 && c[i - 1] !== ' ') i--
   return { value, cursor: i }
 }
 
 // Start of the word right of the cursor: skip the rest of this word, then spaces.
 function cursorNextWord({ value, cursor }: RenameState): RenameState {
+  const c = [...value]
   let i = cursor
-  while (i < value.length && value[i] !== ' ') i++
-  while (i < value.length && value[i] === ' ') i++
+  while (i < c.length && c[i] !== ' ') i++
+  while (i < c.length && c[i] === ' ') i++
   return { value, cursor: i }
 }
 
 function backspace({ value, cursor }: RenameState): RenameState {
-  const c = Math.max(0, cursor - 1)
-  return { value: value.slice(0, c) + value.slice(cursor), cursor: c }
+  const c = [...value]
+  const at = Math.max(0, cursor - 1)
+  return { value: [...c.slice(0, at), ...c.slice(cursor)].join(''), cursor: at }
 }
 
 function insert({ value, cursor }: RenameState, text: string): RenameState {
+  const c = [...value]
   return {
-    value: value.slice(0, cursor) + text + value.slice(cursor),
-    cursor: cursor + text.length
+    value: [...c.slice(0, cursor), text, ...c.slice(cursor)].join(''),
+    cursor: cursor + width(text)
   }
 }
 
@@ -461,6 +492,8 @@ export interface AppProps {
   onRename?: (session: Session, title: string) => Promise<void>
   loadMessages?: (session: Session) => Promise<Message[]>
   onSaveConfig?: (config: { sortMode: SortMode }) => Promise<void>
+  loadLive?: (sessions: Session[]) => Promise<Set<string>>
+  liveRefreshMs?: number
 }
 
 export default function App({
@@ -471,7 +504,9 @@ export default function App({
   onDelete = deleteSession,
   onRename = renameSession,
   loadMessages = getSessionMessages,
-  onSaveConfig = saveConfig
+  onSaveConfig = saveConfig,
+  loadLive = liveSessions,
+  liveRefreshMs = LIVE_REFRESH_MS
 }: AppProps) {
   const { exit } = useApp()
   const { columns: termWidth, rows: termHeight } = useWindowSize()
@@ -486,6 +521,30 @@ export default function App({
   const [rename, setRename] = useState<RenameState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [harness, setHarness] = useState<HarnessId | null>(null)
+  const [live, setLive] = useState<Set<string>>(new Set())
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+
+  // Which sessions a running harness has open, read off the render path once the
+  // list has loaded and then on an interval. Rename and delete check afresh.
+  useEffect(() => {
+    if (loading) return
+    let stopped = false
+    const refresh = () =>
+      loadLive(sessionsRef.current).then(
+        (ids) => {
+          if (!stopped) setLive(ids)
+        },
+        () => {}
+      )
+    refresh()
+    const timer = setInterval(refresh, liveRefreshMs)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }, [loading])
 
   // Paint before any session is parsed: newest batch first, the rest in one later
   // batch (disjoint from the first, so a delete can't be resurrected by the merge).
@@ -516,7 +575,11 @@ export default function App({
     [sessions]
   )
 
-  const displayItems = useMemo(() => buildDisplayItems(sessions, sortMode), [sessions, sortMode])
+  const shown = useMemo(
+    () => (harness ? sessions.filter((s) => s.harness === harness) : sessions),
+    [sessions, harness]
+  )
+  const displayItems = useMemo(() => buildDisplayItems(shown, sortMode), [shown, sortMode])
   const filteredItems = useMemo(
     () => filterItems(displayItems, searchQuery),
     [displayItems, searchQuery]
@@ -665,7 +728,12 @@ export default function App({
     else if (input === '/') setIsSearching(true)
     else if (input === ' ' && current) setMode('preview')
     else if (input === 'u') setMode('stats')
-    else if (key.return && current) {
+    else if (input === 'h') {
+      // all -> each harness in turn -> all
+      const ids = HARNESSES.map((x) => x.id)
+      setHarness(harness === null ? ids[0] : (ids[ids.indexOf(harness) + 1] ?? null))
+      setViewStart(0)
+    } else if (key.return && current) {
       onResume(current)
       exit()
     } else if (input === 'r' && current) {
@@ -693,7 +761,7 @@ export default function App({
 
   if (mode === 'stats') {
     return h(StatsView, {
-      sessions,
+      sessions: shown,
       onBack: () => setMode('list'),
       termWidth,
       termHeight
@@ -741,19 +809,20 @@ export default function App({
     recent: 'sorted by most recent',
     lexic: 'sorted lexicographically'
   }
+  const harnessLabel = harness ? HARNESSES.find((x) => x.id === harness)?.name : 'all harnesses'
   const matchCount = filteredItems.filter((i) => i.type === 'session').length
   // searchQuery is only ever non-empty while searching, so the label tracks isSearching
   const searchLabel = isSearching ? ` │ /${searchQuery}█  ${matchCount} matches` : ''
   const headerText = pad(
     sessions.length === 0 && loading
       ? ' clod │ loading sessions…'
-      : ` clod │ ${sessions.length}${loading ? '+' : ''} sessions │ ${sortLabel[sortMode]}${searchLabel}${loading ? ' │ loading…' : ''}`,
+      : ` clod │ ${shown.length}${loading ? '+' : ''} sessions │ ${harnessLabel} │ ${sortLabel[sortMode]}${searchLabel}${loading ? ' │ loading…' : ''}`,
     termWidth
   )
   const navText = pad(
     rename !== null
       ? ' enter confirm  esc cancel'
-      : ' ↑↓ nav  / search  space preview  enter resume  r rename  u usage  s sort  D delete  q quit',
+      : ' ↑↓ nav  / search  space preview  enter resume  r rename  u usage  s sort  h harness  D delete  q quit',
     termWidth
   )
 
@@ -789,12 +858,14 @@ export default function App({
                 key: item.session.sessionId,
                 value: rename.value,
                 cursor: rename.cursor,
-                termWidth
+                termWidth,
+                mark: harnessOf(item.session).mark
               })
             : h(SessionRow, {
                 key: item.session.sessionId,
                 session: item.session,
                 selected: item.session.sessionId === selectedId,
+                live: live.has(item.session.sessionId),
                 termWidth,
                 sortMode,
                 timeWidth,

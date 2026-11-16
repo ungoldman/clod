@@ -344,16 +344,16 @@ export async function getSessionMessages(filePath: string): Promise<Message[]> {
 // Claude Code writes sessions/<pid>.json at startup and rewrites its sessionId on
 // /clear, /resume, and forks. A crash leaves the file behind, so the pid has to be
 // alive and started when the file says: procStart is ps's lstart, in UTC.
-export async function isSessionLive(
-  sessionId: string,
+export async function liveSessionIds(
   startedAt: (pid: number) => Promise<string | null> = processStartedAt
-): Promise<boolean> {
+): Promise<Set<string>> {
+  const live = new Set<string>()
   const dir = join(claudeDir(), 'sessions')
   let names: string[]
   try {
     names = await readdir(dir)
   } catch {
-    return false
+    return live
   }
   for (const name of names) {
     if (!/^\d+\.json$/.test(name)) continue
@@ -363,19 +363,29 @@ export async function isSessionLive(
     } catch {
       continue
     }
-    if (r.sessionId !== sessionId || !r.pid) continue
+    if (!r.sessionId || !r.pid) continue
     try {
       process.kill(r.pid, 0)
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EPERM') continue
     }
-    if (!r.procStart) return true
-    const started = await startedAt(r.pid)
+    const started = r.procStart ? await startedAt(r.pid) : null
     // unreadable start time: assume the session is open rather than risk a write
-    if (started === null) return true
-    if (started.split(/\s+/).join(' ') === r.procStart.split(/\s+/).join(' ')) return true
+    if (
+      !r.procStart ||
+      started === null ||
+      started.split(/\s+/).join(' ') === r.procStart.split(/\s+/).join(' ')
+    )
+      live.add(r.sessionId)
   }
-  return false
+  return live
+}
+
+export async function isSessionLive(
+  sessionId: string,
+  startedAt: (pid: number) => Promise<string | null> = processStartedAt
+): Promise<boolean> {
+  return (await liveSessionIds(startedAt)).has(sessionId)
 }
 
 const LIVE = 'session is open in Claude Code'
@@ -500,6 +510,7 @@ export const claude: Harness = {
   parse: (f) => parseSession(f.filePath, f.stats),
   messages: (s) => getSessionMessages(s.filePath),
   resume: (s) => ({ command: 'claude', args: ['--resume', s.sessionId] }),
+  liveIds: () => liveSessionIds(),
   rename: (s, title) => renameSession(s.filePath, title),
   delete: (s) => deleteSession(s.filePath)
 }

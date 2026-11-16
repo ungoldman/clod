@@ -10,6 +10,7 @@ import {
   cleanTitle,
   deleteSession,
   getSessionMessages,
+  listLive,
   listSessionFiles,
   liveSessionIds,
   omp,
@@ -493,6 +494,8 @@ test('liveSessionIds: a lease, or a breadcrumb on a tty running an interactive o
     }
     assert.deepEqual(await liveSessionIds(all, probes), new Set(['held', 'b', 'c']))
     assert.equal(await liveSessionIds(all, { ...probes, leases: async () => null }), null)
+    assert.deepEqual(await listLive(all, { ...probes, leases: async () => null }), new Set())
+    assert.deepEqual(await listLive(all, probes), new Set(['held', 'b', 'c']))
   })
 })
 

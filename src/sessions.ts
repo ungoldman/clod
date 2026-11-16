@@ -53,6 +53,8 @@ export interface Harness {
   parse: (file: SessionFile) => Promise<Session | null>
   messages: (session: Session) => Promise<Message[]>
   resume: (session: Session) => { command: string; args: string[] }
+  // ids a running harness has open, for the list's mark
+  liveIds: (sessions: Session[]) => Promise<Set<string>>
   rename: (session: Session, title: string) => Promise<void>
   delete: (session: Session) => Promise<void>
 }
