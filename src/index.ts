@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { helpText, parseArgs, readPackage } from './cli.ts'
 import { loadConfig } from './config.ts'
-import { listSessionFiles, parseSessions, type Session } from './sessions.ts'
+import { harnessOf, listSessionFiles, parseSessions } from './harnesses/index.ts'
+import type { Session } from './sessions.ts'
 
 const action = parseArgs(process.argv.slice(2))
 
@@ -60,7 +61,8 @@ process.stdout.write('\x1b[?1049l') // restore normal screen
 const target = resume.target
 if (target) {
   const { spawnSync } = await import('node:child_process')
-  spawnSync('claude', ['--resume', target.sessionId], {
+  const { command, args } = harnessOf(target).resume(target)
+  spawnSync(command, args, {
     stdio: 'inherit',
     cwd: target.cwd
   })

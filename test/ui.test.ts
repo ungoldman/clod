@@ -56,11 +56,11 @@ function renderApp(sessions: Session[], overrides: Partial<AppProps> = {}) {
     loadFirst: () => Promise.resolve(sessions),
     loadRest: null,
     onResume: (s) => resumed.push(s),
-    onDelete: async (fp) => {
-      deleted.push(fp)
+    onDelete: async (s) => {
+      deleted.push(s.filePath)
     },
-    onRename: async (fp, title) => {
-      renamed.push([fp, title])
+    onRename: async (s, title) => {
+      renamed.push([s.filePath, title])
     },
     onSaveConfig: async ({ sortMode }) => {
       saved.push(sortMode)

@@ -7,18 +7,15 @@ import { test } from 'node:test'
 import {
   deleteSession,
   extractText,
-  fmtTokens,
   getSessionMessages,
   isSessionLive,
   listSessionFiles,
-  loadSessions,
   parseSession,
-  relativeTime,
   renameSession,
-  shortPath,
-  textBlocks,
-  throughputOf
-} from '../src/sessions.ts'
+  textBlocks
+} from '../src/harnesses/claude.ts'
+import { loadSessions } from '../src/harnesses/index.ts'
+import { fmtTokens, relativeTime, shortPath, throughputOf } from '../src/sessions.ts'
 
 type Rec = Record<string, unknown> | string
 

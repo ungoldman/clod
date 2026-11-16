@@ -1,6 +1,7 @@
 import { Box, Text, useApp, useInput, useWindowSize } from 'ink'
 import React from 'react'
 import { type SortMode, saveConfig } from './config.ts'
+import { deleteSession, getSessionMessages, renameSession } from './harnesses/index.ts'
 import {
   buildDisplayItems,
   computeNavigate,
@@ -17,13 +18,10 @@ import {
   usedStr
 } from './list.ts'
 import {
-  deleteSession,
   fmtTokens,
-  getSessionMessages,
   type Message,
   MONTHS,
   relativeTime,
-  renameSession,
   type Session,
   shortPath
 } from './sessions.ts'
@@ -189,17 +187,17 @@ function PreviewMode({
   onBack: () => void
   termWidth: number
   termHeight: number
-  loadMessages: (filePath: string) => Promise<Message[]>
+  loadMessages: (session: Session) => Promise<Message[]>
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
   const [scroll, setScroll] = useState(0)
 
   useEffect(() => {
-    loadMessages(session.filePath).then((msgs) => {
+    loadMessages(session).then((msgs) => {
       setMessages(msgs)
       setScroll(Math.max(0, msgs.length - 1))
     })
-  }, [session.filePath, loadMessages])
+  }, [session, loadMessages])
 
   const viewHeight = termHeight - HEADER_HEIGHT - HINT_HEIGHT - 2
 
@@ -281,13 +279,13 @@ function DeleteConfirm({
   onCancel: () => void
   termWidth: number
   termHeight: number
-  loadMessages: (filePath: string) => Promise<Message[]>
+  loadMessages: (session: Session) => Promise<Message[]>
 }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
 
   useEffect(() => {
-    loadMessages(session.filePath).then(setMessages)
-  }, [session.filePath, loadMessages])
+    loadMessages(session).then(setMessages)
+  }, [session, loadMessages])
 
   useInput((input) => {
     if (input === 'y') onConfirm()
@@ -459,9 +457,9 @@ export interface AppProps {
   loadRest: (() => Promise<Session[]>) | null
   initialSortMode?: SortMode
   onResume: (session: Session) => void
-  onDelete?: (filePath: string) => Promise<void>
-  onRename?: (filePath: string, title: string) => Promise<void>
-  loadMessages?: (filePath: string) => Promise<Message[]>
+  onDelete?: (session: Session) => Promise<void>
+  onRename?: (session: Session, title: string) => Promise<void>
+  loadMessages?: (session: Session) => Promise<Message[]>
   onSaveConfig?: (config: { sortMode: SortMode }) => Promise<void>
 }
 
@@ -585,7 +583,7 @@ export default function App({
             s.sessionId === current.sessionId ? { ...s, title } : s
           setSessions((cur) => cur.map(updateRow))
           // persist in the background; revert and warn if it fails
-          onRename(current.filePath, title).catch((err) => {
+          onRename(current, title).catch((err) => {
             const revertRow = (s: Session) =>
               s.sessionId === current.sessionId ? { ...s, title: current.title } : s
             setSessions((cur) => cur.map(revertRow))
@@ -709,7 +707,7 @@ export default function App({
       termHeight,
       onConfirm: async () => {
         try {
-          await onDelete(current.filePath)
+          await onDelete(current)
         } catch (err) {
           setError(`could not delete: ${(err as Error).message}`)
           setMode('list')
