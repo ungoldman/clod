@@ -22,7 +22,7 @@ const FIRST_BATCH = 40
 const files = await listSessionFiles()
 
 if (files.length === 0) {
-  console.log('No Claude sessions found in ~/.claude/projects')
+  console.log('No sessions found in ~/.claude/projects or ~/.omp/agent/sessions')
   process.exit(0)
 }
 
