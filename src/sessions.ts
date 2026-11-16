@@ -8,7 +8,7 @@ export interface TokenUsage {
   cacheWrite: number
 }
 
-export type HarnessId = 'claude'
+export type HarnessId = 'claude' | 'omp'
 
 export interface Session {
   harness: HarnessId
@@ -61,6 +61,14 @@ export interface Harness {
 // Matches the figure shown in the shell status line.
 export function throughputOf(usage: Partial<TokenUsage>): number {
   return (usage.input || 0) + (usage.output || 0) + (usage.cacheWrite || 0)
+}
+
+export function modelKey(modelId: string | undefined): 'opus' | 'sonnet' | 'haiku' | null {
+  if (!modelId) return null
+  if (modelId.includes('opus')) return 'opus'
+  if (modelId.includes('sonnet')) return 'sonnet'
+  if (modelId.includes('haiku')) return 'haiku'
+  return null
 }
 
 export const MONTHS = [

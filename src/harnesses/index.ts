@@ -1,7 +1,8 @@
 import type { Harness, HarnessId, Message, Session, SessionFile } from '../sessions.ts'
 import { claude } from './claude.ts'
+import { omp } from './omp.ts'
 
-export const HARNESSES: readonly Harness[] = [claude]
+export const HARNESSES: readonly Harness[] = [claude, omp]
 
 const byId = Object.fromEntries(HARNESSES.map((h) => [h.id, h])) as Record<HarnessId, Harness>
 

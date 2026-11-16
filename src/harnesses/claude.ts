@@ -6,6 +6,7 @@ import { processStartedAt } from '../proc.ts'
 import {
   type Harness,
   type Message,
+  modelKey,
   type Session,
   type SessionFile,
   type TokenUsage,
@@ -106,14 +107,6 @@ export function textBlocks(content: RawContent | undefined): string {
       .map((b) => b.text ?? '')
       .join(' ')
   return ''
-}
-
-function modelKey(modelId: string | undefined): 'opus' | 'sonnet' | 'haiku' | null {
-  if (!modelId) return null
-  if (modelId.includes('opus')) return 'opus'
-  if (modelId.includes('sonnet')) return 'sonnet'
-  if (modelId.includes('haiku')) return 'haiku'
-  return null
 }
 
 // Fold one assistant turn's usage into the per-model accumulator. cacheRead is
